@@ -4,7 +4,7 @@
   "description": "Cliente nativo de sincronização bidirecional do Google Drive para Linux",
   "author": "Fabiano C Costa <fabianocarvalhodacosta@gmail.com> (Data Fisher)",
   "license": "GPL-3.0-or-later",
-  "homepage": "https://github.com/fabiano/nuvem-linux",
+  "homepage": "https://github.com/fabianocarcosta/nuvem-linux",
   "type": "module",
   "scripts": {
     "start": "node server.js",

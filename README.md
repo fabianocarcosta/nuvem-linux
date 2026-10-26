@@ -1,8 +1,21 @@
 # Nuvem Linux ☁️
 
-**Cliente nativo de sincronização bidirecional do Google Drive para distribuições Linux (Ubuntu, Debian, Fedora, Mint, etc.).**
+[![Release](https://img.shields.io/github/v/release/fabianocarcosta/nuvem-linux?color=blue&label=Vers%C3%A3o)](https://github.com/fabianocarcosta/nuvem-linux/releases/latest)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Platform: Linux](https://img.shields.io/badge/Platform-Linux%20(x86__64)-orange.svg)]()
+
+**Cliente nativo de sincronização bidirecional do Google Drive para distribuições Linux (Ubuntu, Debian, Fedora, Mint, Pop!_OS e outras).**
 
 O **Nuvem Linux** funciona de forma semelhante ao cliente oficial do Dropbox e Google Drive: roda silenciosamente em segundo plano, integra-se ao gerenciador de arquivos com emblemas visuais de status, adiciona um ícone de progresso na barra do sistema e protege seus arquivos com histórico e lixeira segura.
+
+---
+
+### 📥 Downloads Oficiais da Versão Estável
+
+| Pacote | Compatibilidade | Download Direto |
+| :--- | :--- | :--- |
+| **Debian / Ubuntu (`.deb`)** | Ubuntu, Debian, Linux Mint, Pop!_OS | [⬇️ Baixar `.deb` (v0.1.0)](https://github.com/fabianocarcosta/nuvem-linux/releases/download/v0.1.0/nuvem-linux_0.1.0_amd64.deb) |
+| **Portátil (`.AppImage`)** | Qualquer distribuição Linux x86_64 | [⬇️ Baixar `.AppImage` (v0.1.0)](https://github.com/fabianocarcosta/nuvem-linux/releases/download/v0.1.0/Nuvem-Linux-0.1.0-x86_64.AppImage) |
 
 ---
 

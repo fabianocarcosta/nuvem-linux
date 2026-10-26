@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+  pkill -f "nuvem-linux.*server.js" 2>/dev/null || true
+fi
+
+exit 0
+

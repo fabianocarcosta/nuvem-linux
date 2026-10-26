@@ -1,0 +1,21 @@
+[Unit]
+Description=Nuvem Linux - sincronização do Google Drive
+After=default.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/REA
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=RCLONE_DRIVE_USE_TRASH=true
+ExecStart=/usr/bin/node %h/REA/server.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=false
+ReadWritePaths=%h
+
+[Install]
+WantedBy=default.target

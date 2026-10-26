@@ -1,0 +1,30 @@
+{
+  "name": "nuvem-linux",
+  "version": "0.1.0",
+  "description": "Cliente nativo de sincronização bidirecional do Google Drive para Linux",
+  "author": "Fabiano C Costa <fabianocarvalhodacosta@gmail.com> (Data Fisher)",
+  "license": "GPL-3.0-or-later",
+  "homepage": "https://github.com/fabiano/nuvem-linux",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "concurrently -k \"node server.js\" \"vite --configLoader native --host 127.0.0.1\"",
+    "build": "vite build --configLoader native",
+    "test": "node --test",
+    "install:service": "bash scripts/install-user-service.sh",
+    "uninstall:service": "bash scripts/uninstall-user-service.sh",
+    "package": "bash scripts/package.sh all",
+    "package:deb": "bash scripts/package.sh deb",
+    "package:appimage": "bash scripts/package.sh appimage"
+  },
+  "dependencies": {
+    "chokidar": "^6.0.0",
+    "express": "^5.3.0",
+    "lucide": "^0.468.0",
+    "lucide-static": "^0.468.0"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6",
+    "vite": "^6.0.0"
+  }
+}

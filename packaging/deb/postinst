@@ -1,0 +1,25 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "configure" ]; then
+  if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database -q /usr/share/applications || true
+  fi
+  if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
+  fi
+
+  echo "=========================================================="
+  echo " Nuvem Linux instalado com sucesso!"
+  echo ""
+  echo " Para habilitar e iniciar automaticamente no login:"
+  echo "   systemctl --user daemon-reload"
+  echo "   systemctl --user enable --now nuvem-linux.service"
+  echo ""
+  echo " Ou abra pelo menu de aplicativos ou terminal:"
+  echo "   nuvem-linux"
+  echo "=========================================================="
+fi
+
+exit 0
+

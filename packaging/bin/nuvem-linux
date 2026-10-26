@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+set -e
+
+APP_URL="http://127.0.0.1:4173"
+APP_DIR="/opt/nuvem-linux"
+
+find_node() {
+  if command -v node >/dev/null 2>&1; then
+    command -v node
+  elif [ -d "$HOME/.nvm/versions/node" ] && [ -n "$(ls -A "$HOME/.nvm/versions/node" 2>/dev/null)" ]; then
+    echo "$HOME/.nvm/versions/node/$(ls "$HOME/.nvm/versions/node" | tail -n 1)/bin/node"
+  elif [ -x "/usr/bin/node" ]; then
+    echo "/usr/bin/node"
+  elif [ -x "/usr/local/bin/node" ]; then
+    echo "/usr/local/bin/node"
+  else
+    echo "node"
+  fi
+}
+
+NODE_BIN="$(find_node)"
+
+is_running() {
+  curl -s -m 1 "$APP_URL/api/status" >/dev/null 2>&1
+}
+
+start_service_or_background() {
+  if is_running; then
+    return 0
+  fi
+
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user start nuvem-linux.service 2>/dev/null || true
+  fi
+
+  for _ in {1..15}; do
+    if is_running; then return 0; fi
+    sleep 0.2
+  done
+
+  if [ -d "$APP_DIR" ] && [ -f "$APP_DIR/server.js" ]; then
+    nohup "$NODE_BIN" "$APP_DIR/server.js" >/dev/null 2>&1 &
+  elif [ -f "./server.js" ]; then
+    nohup "$NODE_BIN" "./server.js" >/dev/null 2>&1 &
+  fi
+
+  for _ in {1..20}; do
+    if is_running; then return 0; fi
+    sleep 0.2
+  done
+}
+
+open_window() {
+  if command -v google-chrome >/dev/null 2>&1; then
+    google-chrome --app="$APP_URL" --class="nuvem-linux" >/dev/null 2>&1 &
+  elif command -v google-chrome-stable >/dev/null 2>&1; then
+    google-chrome-stable --app="$APP_URL" --class="nuvem-linux" >/dev/null 2>&1 &
+  elif command -v chromium >/dev/null 2>&1; then
+    chromium --app="$APP_URL" --class="nuvem-linux" >/dev/null 2>&1 &
+  elif command -v chromium-browser >/dev/null 2>&1; then
+    chromium-browser --app="$APP_URL" --class="nuvem-linux" >/dev/null 2>&1 &
+  elif command -v brave-browser >/dev/null 2>&1; then
+    brave-browser --app="$APP_URL" --class="nuvem-linux" >/dev/null 2>&1 &
+  elif command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$APP_URL" >/dev/null 2>&1 &
+  else
+    printf "Nuvem Linux disponível em: %s\n" "$APP_URL"
+  fi
+}
+
+case "${1:-open}" in
+  open|"")
+    start_service_or_background
+    open_window
+    ;;
+  start)
+    if is_running; then
+      echo "Nuvem Linux já está em execução em $APP_URL"
+    else
+      start_service_or_background
+      if is_running; then
+        echo "Nuvem Linux iniciado com sucesso em $APP_URL"
+      else
+        echo "Falha ao iniciar o serviço Nuvem Linux."
+        exit 1
+      fi
+    fi
+    ;;
+  stop)
+    if command -v systemctl >/dev/null 2>&1; then
+      systemctl --user stop nuvem-linux.service 2>/dev/null || true
+    fi
+    pkill -f "nuvem-linux.*server.js" 2>/dev/null || true
+    echo "Nuvem Linux parado."
+    ;;
+  status)
+    if is_running; then
+      echo "Nuvem Linux está ATIVO e respondendo em $APP_URL"
+    else
+      echo "Nuvem Linux está PARADO."
+    fi
+    ;;
+  logs)
+    if command -v journalctl >/dev/null 2>&1; then
+      journalctl --user -u nuvem-linux.service -f
+    else
+      echo "journalctl não encontrado."
+    fi
+    ;;
+  --help|-h|help)
+    echo "Uso: nuvem-linux [open|start|stop|status|logs]"
+    echo ""
+    echo "Comandos:"
+    echo "  open    Inicia o serviço se necessário e abre a interface (padrão)"
+    echo "  start   Inicia o serviço em segundo plano"
+    echo "  stop    Interrompe o serviço"
+    echo "  status  Verifica se o serviço está em execução"
+    echo "  logs    Acompanha os registros em tempo real via journalctl"
+    ;;
+  *)
+    echo "Comando desconhecido: $1. Use 'nuvem-linux help' para opções."
+    exit 1
+    ;;
+esac
+

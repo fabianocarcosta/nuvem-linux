@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Nuvem Linux
+GenericName=Cliente Google Drive
+Comment=Sincronização bidirecional do Google Drive para Linux
+Exec=/usr/bin/nuvem-linux
+Icon=nuvem-linux
+Terminal=false
+Type=Application
+Categories=Network;FileTransfer;Utility;
+Keywords=google;drive;cloud;nuvem;sync;sincronizacao;
+StartupNotify=true
+StartupWMClass=nuvem-linux
+

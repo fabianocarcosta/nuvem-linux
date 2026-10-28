@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PKG_NAME="nuvem-linux"
-VERSION="0.1.0"
+VERSION="0.1.1"
 ARCH="amd64"
 STAGE_DIR="$SCRIPT_DIR/build/${PKG_NAME}_${VERSION}_${ARCH}"
 OUTPUT_DIR="$ROOT_DIR/dist-packages"

@@ -210,8 +210,24 @@ async function jsonEntries(args, options = {}) {
     return { Path: relative, Size: Number(entry.Size || 0), ModTime: entry.ModTime || '', Hashes: entry.Hashes || {}, ID: entry.ID || null }
   }).sort((a, b) => a.Path.localeCompare(b.Path))
 }
+async function computeFileMd5(filePath) {
+  try {
+    const { createHash } = await import('node:crypto')
+    const { createReadStream } = await import('node:fs')
+    return await new Promise((resolve) => {
+      const hash = createHash('md5')
+      const stream = createReadStream(filePath)
+      stream.on('data', chunk => hash.update(chunk))
+      stream.on('end', () => resolve(hash.digest('hex')))
+      stream.on('error', () => resolve(null))
+    })
+  } catch {
+    return null
+  }
+}
+
 async function listLocalFiles(localPath) {
-  return jsonEntries(['lsjson', '--recursive', '--files-only', '--hash', localPath])
+  return jsonEntries(['lsjson', '--recursive', '--files-only', '--skip-links', localPath])
 }
 async function listRemoteFiles(remote, remotePath) {
   try { return await jsonEntries(['lsjson', '--recursive', '--files-only', '--hash', `${remote}:${remotePath}`]) }
@@ -233,6 +249,17 @@ async function folderSnapshot(folder) {
     listLocalFiles(folder.localPath),
     listRemoteFiles(folder.remote, folder.remotePath),
   ])
+  if (remote.length > 0 && local.length > 0) {
+    const remotePaths = new Set(remote.map(r => r.Path))
+    const commonLocal = local.filter(l => remotePaths.has(l.Path))
+    if (commonLocal.length > 0 && commonLocal.length <= 1000) {
+      await Promise.all(commonLocal.map(async entry => {
+        const fullPath = path.join(folder.localPath, entry.Path)
+        const md5 = await computeFileMd5(fullPath)
+        if (md5) entry.Hashes = { md5 }
+      }))
+    }
+  }
   return { local, remote }
 }
 function createPreview(snapshot) {
@@ -241,6 +268,7 @@ function createPreview(snapshot) {
 function makeRcloneSyncArgs(folder, initial = false) {
   const args = ['bisync', folder.localPath, `${folder.remote}:${folder.remotePath}`,
     '--log-level', 'INFO', '--retries', '3', '--retries-sleep', '10s',
+    '--skip-links',
     '--exclude', '/.nuvem-linux-trash/**',
     '--exclude', '.~lock.*#',
     '--exclude', '~$*',

@@ -10,13 +10,13 @@ Guia prático para instalação, configuração e uso cotidiano do **Nuvem Linux
 Abra o terminal na pasta onde baixou o arquivo `.deb` e execute:
 ```bash
 sudo apt update
-sudo apt install ./nuvem-linux_0.1.2_amd64.deb
+sudo apt install ./nuvem-linux_0.1.3_amd64.deb
 ```
 > O sistema cuidará de baixar todos os pacotes e dependências automaticamente.
 
 ### Em outras distribuições (ou sem instalar nada):
 Use o arquivo **AppImage**:
-1. Clique com o botão direito no arquivo `Nuvem-Linux-0.1.2-x86_64.AppImage` -> **Propriedades** -> **Permissões** -> marque **Permitir executar o arquivo como programa**.
+1. Clique com o botão direito no arquivo `Nuvem-Linux-0.1.3-x86_64.AppImage` -> **Propriedades** -> **Permissões** -> marque **Permitir executar o arquivo como programa**.
 2. Dê dois cliques para abrir.
 
 ---

@@ -18,6 +18,49 @@ ICONS_DIR = os.path.expanduser("~/.local/share/nuvem-linux/icons")
 SYNC_FOLDERS_PATH = os.path.expanduser("~/.local/share/nuvem-linux/sync-folders.json")
 API_BASE = "http://localhost:4173/api"
 
+def open_dashboard():
+    # 1. Tenta abrir via CLI do nuvem-linux (abre no modo aplicativo limpo)
+    for bin_path in ["/usr/bin/nuvem-linux", "/usr/local/bin/nuvem-linux"]:
+        if os.path.exists(bin_path):
+            try:
+                subprocess.Popen([bin_path, "open"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return
+            except Exception:
+                pass
+
+    # 2. Tenta abrir via XDG Desktop Portal (garante abertura no ambiente gráfico do usuário)
+    try:
+        bus = dbus.SessionBus()
+        portal = bus.get_object("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop")
+        open_uri = portal.get_dbus_method("OpenURI", "org.freedesktop.portal.OpenURI")
+        open_uri("", "http://localhost:4173", {})
+        return
+    except Exception:
+        pass
+
+    # 3. Fallbacks com navegadores instalados em modo app ou gio/xdg-open
+    for cmd in [
+        ["microsoft-edge", "--app=http://localhost:4173"],
+        ["google-chrome", "--app=http://localhost:4173"],
+        ["gio", "open", "http://localhost:4173"],
+        ["xdg-open", "http://localhost:4173"]
+    ]:
+        try:
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+        except Exception:
+            pass
+
+def open_folder(path):
+    if not path or not os.path.exists(path):
+        return
+    for cmd in [["gio", "open", path], ["xdg-open", path]]:
+        try:
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+        except Exception:
+            pass
+
 DBusGMainLoop(set_as_default=True)
 
 class NuvemDBusMenu(dbus.service.Object):
@@ -50,9 +93,26 @@ class NuvemDBusMenu(dbus.service.Object):
         if event_id == "clicked":
             self.indicator.handle_menu_action(id)
 
+    @dbus.service.method("com.canonical.dbusmenu", in_signature="a(isvu)", out_signature="ai")
+    def EventGroup(self, events):
+        not_handled = []
+        for ev in events:
+            try:
+                item_id = int(ev[0])
+                event_id = str(ev[1])
+                if event_id == "clicked":
+                    self.indicator.handle_menu_action(item_id)
+            except Exception as e:
+                print(f"Erro ao processar evento de menu: {e}", file=sys.stderr)
+        return dbus.Array(not_handled, signature="i")
+
     @dbus.service.method("com.canonical.dbusmenu", in_signature="i", out_signature="b")
     def AboutToShow(self, id):
         return False
+
+    @dbus.service.method("com.canonical.dbusmenu", in_signature="ai", out_signature="aiai")
+    def AboutToShowGroup(self, ids):
+        return (dbus.Array([], signature="i"), dbus.Array([], signature="i"))
 
     @dbus.service.method("com.canonical.dbusmenu", in_signature="aias", out_signature="a(ia{sv})")
     def GetGroupProperties(self, ids, property_names):
@@ -81,7 +141,7 @@ class NuvemStatusNotifierItem(dbus.service.Object):
     @dbus.service.method("org.kde.StatusNotifierItem", in_signature="ii", out_signature="")
     def Activate(self, x, y):
         # Click opens web dashboard
-        subprocess.Popen(["xdg-open", "http://localhost:4173"])
+        open_dashboard()
 
     @dbus.service.method("org.kde.StatusNotifierItem", in_signature="ii", out_signature="")
     def ContextMenu(self, x, y):
@@ -132,11 +192,9 @@ class NuvemStatusNotifierItem(dbus.service.Object):
             return
         act_type = action.get("type")
         if act_type == "open_dash":
-            subprocess.Popen(["xdg-open", "http://localhost:4173"])
+            open_dashboard()
         elif act_type == "open_folder":
-            path = action.get("path")
-            if path and os.path.exists(path):
-                subprocess.Popen(["xdg-open", path])
+            open_folder(action.get("path"))
         elif act_type == "sync_all":
             self.sync_all_folders()
         elif act_type == "toggle_pause":

@@ -14,8 +14,8 @@ O **Nuvem Linux** funciona de forma semelhante ao cliente oficial do Dropbox e G
 
 | Pacote | Compatibilidade | Download Direto |
 | :--- | :--- | :--- |
-| **Debian / Ubuntu (`.deb`)** | Ubuntu, Debian, Linux Mint, Pop!_OS | [⬇️ Baixar `.deb` (v0.1.1)](https://github.com/fabianocarcosta/nuvem-linux/releases/download/v0.1.1/nuvem-linux_0.1.1_amd64.deb) |
-| **Portátil (`.AppImage`)** | Qualquer distribuição Linux x86_64 | [⬇️ Baixar `.AppImage` (v0.1.1)](https://github.com/fabianocarcosta/nuvem-linux/releases/download/v0.1.1/Nuvem-Linux-0.1.1-x86_64.AppImage) |
+| **Debian / Ubuntu (`.deb`)** | Ubuntu, Debian, Linux Mint, Pop!_OS | [⬇️ Baixar `.deb` (v0.1.2)](https://github.com/fabianocarcosta/nuvem-linux/releases/download/v0.1.2/nuvem-linux_0.1.2_amd64.deb) |
+| **Portátil (`.AppImage`)** | Qualquer distribuição Linux x86_64 | [⬇️ Baixar `.AppImage` (v0.1.2)](https://github.com/fabianocarcosta/nuvem-linux/releases/download/v0.1.2/Nuvem-Linux-0.1.2-x86_64.AppImage) |
 
 ---
 
@@ -62,12 +62,12 @@ Ideal para **Ubuntu**, **Debian**, **Linux Mint**, **Pop!_OS** e derivados.
 #### Instalação via terminal (Resolve todas as dependências automaticamente):
 ```bash
 sudo apt update
-sudo apt install ./dist-packages/nuvem-linux_0.1.1_amd64.deb
+sudo apt install ./dist-packages/nuvem-linux_0.1.2_amd64.deb
 ```
 > 💡 *Dica:* O comando `apt install ./arquivo.deb` instala automaticamente o `nodejs`, `rclone`, extensões do Nautilus e pacotes do sistema necessários diretamente dos repositórios oficiais.
 
 #### Instalação gráfica:
-Dê **dois cliques** no arquivo `nuvem-linux_0.1.1_amd64.deb` e clique em **Instalar** na Central de Aplicativos.
+Dê **dois cliques** no arquivo `nuvem-linux_0.1.2_amd64.deb` e clique em **Instalar** na Central de Aplicativos.
 
 ---
 
@@ -76,11 +76,11 @@ Ideal para qualquer distribuição Linux (Fedora, Arch, openSUSE, etc.) sem prec
 
 1. Conceda permissão de execução ao arquivo:
    ```bash
-   chmod +x dist-packages/Nuvem-Linux-0.1.1-x86_64.AppImage
+   chmod +x dist-packages/Nuvem-Linux-0.1.2-x86_64.AppImage
    ```
 2. Execute com dois cliques ou pelo terminal:
    ```bash
-   ./dist-packages/Nuvem-Linux-0.1.1-x86_64.AppImage
+   ./dist-packages/Nuvem-Linux-0.1.2-x86_64.AppImage
    ```
 
 ---
@@ -251,8 +251,8 @@ cd /home/fabiano/REA
 npm run package
 ```
 Os arquivos prontos para entrega ficarão na pasta `dist-packages/`:
-- `nuvem-linux_0.1.1_amd64.deb`
-- `Nuvem-Linux-0.1.1-x86_64.AppImage`
+- `nuvem-linux_0.1.2_amd64.deb`
+- `Nuvem-Linux-0.1.2-x86_64.AppImage`
 
 ---
 

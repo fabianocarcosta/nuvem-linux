@@ -51,7 +51,11 @@ start_service_or_background() {
 }
 
 open_window() {
-  if command -v google-chrome >/dev/null 2>&1; then
+  if command -v microsoft-edge >/dev/null 2>&1; then
+    microsoft-edge --app="$APP_URL" --class="nuvem-linux" >/dev/null 2>&1 &
+  elif command -v msedge >/dev/null 2>&1; then
+    msedge --app="$APP_URL" --class="nuvem-linux" >/dev/null 2>&1 &
+  elif command -v google-chrome >/dev/null 2>&1; then
     google-chrome --app="$APP_URL" --class="nuvem-linux" >/dev/null 2>&1 &
   elif command -v google-chrome-stable >/dev/null 2>&1; then
     google-chrome-stable --app="$APP_URL" --class="nuvem-linux" >/dev/null 2>&1 &
@@ -61,6 +65,8 @@ open_window() {
     chromium-browser --app="$APP_URL" --class="nuvem-linux" >/dev/null 2>&1 &
   elif command -v brave-browser >/dev/null 2>&1; then
     brave-browser --app="$APP_URL" --class="nuvem-linux" >/dev/null 2>&1 &
+  elif command -v gio >/dev/null 2>&1; then
+    gio open "$APP_URL" >/dev/null 2>&1 &
   elif command -v xdg-open >/dev/null 2>&1; then
     xdg-open "$APP_URL" >/dev/null 2>&1 &
   else

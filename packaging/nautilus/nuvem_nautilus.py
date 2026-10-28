@@ -13,6 +13,14 @@ from gi.repository import Nautilus, GObject
 SYNC_FOLDERS_PATH = os.path.expanduser("~/.local/share/nuvem-linux/sync-folders.json")
 API_BASE = "http://localhost:4173/api"
 
+def open_dashboard():
+    for cmd in [["/usr/bin/nuvem-linux", "open"], ["gio", "open", "http://localhost:4173"], ["xdg-open", "http://localhost:4173"]]:
+        try:
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+        except Exception:
+            pass
+
 class NuvemCache:
     _cache = []
     _last_mtime = 0
@@ -180,7 +188,7 @@ class NuvemNautilus(GObject.GObject, Nautilus.InfoProvider, Nautilus.MenuProvide
             icon="emblem-default"
         )
         def on_open_clicked(_):
-            subprocess.Popen(["xdg-open", "http://localhost:4173"])
+            open_dashboard()
         item_open.connect("activate", on_open_clicked)
         items.append(item_open)
 
@@ -228,7 +236,7 @@ class NuvemNautilus(GObject.GObject, Nautilus.InfoProvider, Nautilus.MenuProvide
             icon="emblem-default"
         )
         def on_dash_clicked(_):
-            subprocess.Popen(["xdg-open", "http://localhost:4173"])
+            open_dashboard()
         item_dash.connect("activate", on_dash_clicked)
         items.append(item_dash)
 

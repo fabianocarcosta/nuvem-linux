@@ -240,7 +240,11 @@ function createPreview(snapshot) {
 }
 function makeRcloneSyncArgs(folder, initial = false) {
   const args = ['bisync', folder.localPath, `${folder.remote}:${folder.remotePath}`,
-    '--log-level', 'INFO', '--retries', '3', '--retries-sleep', '10s', '--exclude', '/.nuvem-linux-trash/**']
+    '--log-level', 'INFO', '--retries', '3', '--retries-sleep', '10s',
+    '--exclude', '/.nuvem-linux-trash/**',
+    '--exclude', '.~lock.*#',
+    '--exclude', '~$*',
+    '--exclude', '*.tmp']
   const localBackup = path.join(dataDir, 'bisync-backups', folder.id)
   const remoteBackup = `${folder.remote}:.nuvem-linux-backups/${folder.id}`
   args.push('--backup-dir1', localBackup, '--backup-dir2', remoteBackup)
@@ -305,12 +309,6 @@ async function preserveLocalDeletions(folder, previousBaseline, afterSync) {
       const originalPath = localPathFor(folder, relativePath)
       const trashItem = await findLinuxTrashItem(originalPath, { id: randomUUID(), folderId: folder.id, driveFileId: oldEntry.ID, remote: folder.remote, remotePath: remotePathFor(folder, relativePath) })
       if (trashItem) { await recordTrashItem(trashItem); moved++ }
-      else {
-        try { await stat(originalPath) } catch (error) {
-          if (error.code === 'ENOENT') throw new Error(`O arquivo ${relativePath} foi removido com rm; não é possível colocá-lo na lixeira do Linux. A cópia do Drive continua protegida.`)
-          throw error
-        }
-      }
     }
   }
   return moved

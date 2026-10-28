@@ -80,7 +80,8 @@ class NuvemNautilus(GObject.GObject, Nautilus.InfoProvider, Nautilus.MenuProvide
             # Child file or directory
             if filepath.startswith(local_path + os.sep):
                 rel_path = os.path.relpath(filepath, local_path)
-                if rel_path.startswith(".nuvem-linux-trash"):
+                basename = os.path.basename(filepath)
+                if rel_path.startswith(".nuvem-linux-trash") or basename.startswith(".~lock.") or basename.startswith("~$") or basename.endswith(".tmp"):
                     return Nautilus.OperationResult.COMPLETE
 
                 if ".conflito" in rel_path:

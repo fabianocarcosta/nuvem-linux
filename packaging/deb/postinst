@@ -2,6 +2,36 @@
 set -e
 
 if [ "$1" = "configure" ]; then
+  # Corrige incompatibilidade do GNOME 46+ com Chromium/Chrome/Edge (chave antialiasing)
+  SCHEMA_XML="/usr/share/glib-2.0/schemas/org.gnome.settings-daemon.plugins.xsettings.gschema.xml"
+  if [ -f "$SCHEMA_XML" ] && ! grep -q '<key name="antialiasing"' "$SCHEMA_XML"; then
+    python3 -c "
+path = '$SCHEMA_XML'
+with open(path, 'r') as f:
+    c = f.read()
+if '<key name=\"antialiasing\"' not in c.split('</schema>')[0]:
+    keys = '''    <key name=\"antialiasing\" enum=\"org.gnome.settings-daemon.GsdFontAntialiasingMode\">
+      <default>'grayscale'</default>
+      <summary>Antialiasing</summary>
+      <description>The type of antialiasing to use when rendering fonts.</description>
+    </key>
+    <key name=\"hinting\" enum=\"org.gnome.settings-daemon.GsdFontHinting\">
+      <default>'slight'</default>
+      <summary>Hinting</summary>
+      <description>The type of hinting to use when rendering fonts.</description>
+    </key>
+    <key name=\"rgba-order\" enum=\"org.gnome.settings-daemon.GsdFontRgbaOrder\">
+      <default>'rgb'</default>
+      <summary>RGBA order</summary>
+      <description>The order of subpixel elements on an LCD screen.</description>
+    </key>'''
+    c = c.replace('  </schema>\n  <schema id=\"org.gnome.settings-daemon.plugins.xsettings.deprecated\">', keys + '\n  </schema>\n  <schema id=\"org.gnome.settings-daemon.plugins.xsettings.deprecated\">')
+    with open(path, 'w') as f:
+        f.write(c)
+" 2>/dev/null || true
+    glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null || true
+  fi
+
   if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database -q /usr/share/applications || true
   fi

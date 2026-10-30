@@ -1224,19 +1224,7 @@ app.post('/api/open-local', async (req, res) => {
 
 app.post('/api/open-window', async (req, res) => {
   try {
-    const profileDir = path.join(homedir(), '.config', 'nuvem-linux', 'app-profile')
-    await mkdir(profileDir, { recursive: true })
     const appUrl = 'http://127.0.0.1:4173'
-    const flags = [
-      `--app=${appUrl}`,
-      '--class=nuvem-linux',
-      '--name=nuvem-linux',
-      `--user-data-dir=${profileDir}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--window-size=1120,760',
-    ]
-
     for (const binPath of ['/usr/bin/nuvem-linux', '/usr/local/bin/nuvem-linux']) {
       if (existsSync(binPath)) {
         const child = spawn(binPath, ['window'], { detached: true, stdio: 'ignore', env: process.env })
@@ -1244,6 +1232,13 @@ app.post('/api/open-window', async (req, res) => {
         return res.json({ success: true, message: 'Janela do aplicativo aberta.' })
       }
     }
+
+    const flags = [
+      `--app=${appUrl}`,
+      '--class=nuvem-linux',
+      '--name=nuvem-linux',
+      '--window-size=1120,760',
+    ]
 
     const candidates = ['microsoft-edge', 'google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'brave-browser']
     let spawned = false

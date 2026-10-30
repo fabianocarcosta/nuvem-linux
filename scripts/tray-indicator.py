@@ -24,8 +24,6 @@ APP_PROFILE_DIR = os.path.expanduser("~/.config/nuvem-linux/app-profile")
 
 def open_app_window():
     """Abre o painel em uma janela dedicada de aplicativo (modo app isolado, sem barras do navegador)."""
-    os.makedirs(APP_PROFILE_DIR, exist_ok=True)
-    
     # 1. Tenta usar o comando oficial nuvem-linux window
     for bin_path in ["/usr/bin/nuvem-linux", "/usr/local/bin/nuvem-linux", os.path.expanduser("~/nuvem-linux/packaging/bin/nuvem-linux")]:
         if os.path.exists(bin_path):
@@ -35,14 +33,11 @@ def open_app_window():
             except Exception:
                 pass
 
-    # 2. Executa diretamente o navegador em modo aplicativo com perfil independente
+    # 2. Executa diretamente o navegador em modo aplicativo
     flags = [
         f"--app={APP_URL}",
         "--class=nuvem-linux",
         "--name=nuvem-linux",
-        f"--user-data-dir={APP_PROFILE_DIR}",
-        "--no-first-run",
-        "--no-default-browser-check",
         "--window-size=1120,760",
     ]
 
@@ -69,6 +64,13 @@ def open_app_window():
                 return
             except Exception:
                 pass
+
+    if shutil.which("firefox"):
+        try:
+            subprocess.Popen(["firefox", "--new-window", APP_URL], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+        except Exception:
+            pass
 
     # Fallback para navegador padrão caso nenhum Chromium esteja disponível
     open_browser()
@@ -134,7 +136,10 @@ class NuvemDBusMenu(dbus.service.Object):
     @dbus.service.method("com.canonical.dbusmenu", in_signature="isvu", out_signature="")
     def Event(self, id, event_id, data, timestamp):
         if event_id == "clicked":
-            self.indicator.handle_menu_action(id)
+            if id == 0:
+                open_app_window()
+            else:
+                self.indicator.handle_menu_action(id)
 
     @dbus.service.method("com.canonical.dbusmenu", in_signature="a(isvu)", out_signature="ai")
     def EventGroup(self, events):
@@ -144,7 +149,10 @@ class NuvemDBusMenu(dbus.service.Object):
                 item_id = int(ev[0])
                 event_id = str(ev[1])
                 if event_id == "clicked":
-                    self.indicator.handle_menu_action(item_id)
+                    if item_id == 0:
+                        open_app_window()
+                    else:
+                        self.indicator.handle_menu_action(item_id)
             except Exception as e:
                 print(f"Erro ao processar evento de menu: {e}", file=sys.stderr)
         return dbus.Array(not_handled, signature="i")
@@ -183,8 +191,13 @@ class NuvemStatusNotifierItem(dbus.service.Object):
 
     @dbus.service.method("org.kde.StatusNotifierItem", in_signature="ii", out_signature="")
     def Activate(self, x, y):
-        # Click opens web dashboard
-        open_dashboard()
+        # Clique no icone da bandeja abre a janela do aplicativo
+        open_app_window()
+
+    @dbus.service.method("org.kde.StatusNotifierItem", in_signature="ii", out_signature="")
+    def SecondaryActivate(self, x, y):
+        # Clique do meio tambem abre a janela do aplicativo
+        open_app_window()
 
     @dbus.service.method("org.kde.StatusNotifierItem", in_signature="ii", out_signature="")
     def ContextMenu(self, x, y):
@@ -205,6 +218,7 @@ class NuvemStatusNotifierItem(dbus.service.Object):
                 "IconName": dbus.String(self.icon_name),
                 "IconThemePath": dbus.String(ICONS_DIR),
                 "Menu": dbus.ObjectPath("/MenuBar"),
+                "ItemIsMenu": dbus.Boolean(False),
                 "ToolTip": dbus.Struct((
                     dbus.String(self.icon_name),
                     dbus.Array([], signature="(iiay)"),
@@ -332,8 +346,13 @@ class NuvemStatusNotifierItem(dbus.service.Object):
         actions = {}
         curr_id = 1
 
-        # Header status
-        header_text = "☁️ Nuvem Linux: Sincronizado"
+        # 1. Acao principal em destaque no topo
+        items.append({"id": curr_id, "label": "🖥️ Abrir Nuvem Linux", "enabled": True})
+        actions[curr_id] = {"type": "open_app_window"}
+        curr_id += 1
+
+        # 2. Status com acao de clique para abrir
+        header_text = "☁️ Status: Sincronizado"
         if is_syncing:
             header_text = f"🔄 Sincronizando {syncing_names[0] if syncing_names else ''}…"
         elif is_error:
@@ -341,7 +360,8 @@ class NuvemStatusNotifierItem(dbus.service.Object):
         elif all_paused:
             header_text = "⏸️ Sincronização Pausada"
 
-        items.append({"id": curr_id, "label": header_text, "enabled": False})
+        items.append({"id": curr_id, "label": header_text, "enabled": True})
+        actions[curr_id] = {"type": "open_app_window"}
         curr_id += 1
         items.append({"id": curr_id, "type": "separator"})
         curr_id += 1
@@ -358,22 +378,29 @@ class NuvemStatusNotifierItem(dbus.service.Object):
         if update_info.get("hasUpdate"):
             tag = update_info.get("latestTag") or update_info.get("latestVersion") or ""
             items.append({"id": curr_id, "label": f"🚀 Nova versão {tag} disponível!", "enabled": True})
-            actions[curr_id] = {"type": "open_dash"}
+            actions[curr_id] = {"type": "open_app_window"}
             curr_id += 1
             items.append({"id": curr_id, "type": "separator"})
             curr_id += 1
 
         # Actions
-        items.append({"id": curr_id, "label": "🖥️ Abrir em janela de aplicativo", "enabled": True})
-        actions[curr_id] = {"type": "open_app_window"}
-        curr_id += 1
-
-        items.append({"id": curr_id, "label": "🌐 Abrir no navegador padrão", "enabled": True})
-        actions[curr_id] = {"type": "open_browser"}
-        curr_id += 1
-
         items.append({"id": curr_id, "label": "🔄 Sincronizar tudo agora", "enabled": not all_paused})
         actions[curr_id] = {"type": "sync_all"}
+        curr_id += 1
+
+        if folders:
+            for f in folders:
+                lp = f.get("localPath")
+                fname = os.path.basename(lp) if lp else "Pasta"
+                items.append({"id": curr_id, "label": f"📁 Abrir pasta {fname}", "enabled": True})
+                actions[curr_id] = {"type": "open_folder", "path": lp}
+                curr_id += 1
+
+        items.append({"id": curr_id, "type": "separator"})
+        curr_id += 1
+
+        items.append({"id": curr_id, "label": "🌐 Abrir no navegador web", "enabled": True})
+        actions[curr_id] = {"type": "open_browser"}
         curr_id += 1
 
         if folders:

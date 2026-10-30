@@ -51,16 +51,10 @@ start_service_or_background() {
 }
 
 open_window() {
-  PROFILE_DIR="$HOME/.config/nuvem-linux/app-profile"
-  mkdir -p "$PROFILE_DIR"
-
   APP_FLAGS=(
     "--app=$APP_URL"
     "--class=nuvem-linux"
     "--name=nuvem-linux"
-    "--user-data-dir=$PROFILE_DIR"
-    "--no-first-run"
-    "--no-default-browser-check"
     "--window-size=1120,760"
   )
 
@@ -93,6 +87,8 @@ open_window() {
     chromium-browser "${APP_FLAGS[@]}" >/dev/null 2>&1 &
   elif command -v brave-browser >/dev/null 2>&1; then
     brave-browser "${APP_FLAGS[@]}" >/dev/null 2>&1 &
+  elif command -v firefox >/dev/null 2>&1; then
+    firefox --new-window "$APP_URL" >/dev/null 2>&1 &
   elif command -v gio >/dev/null 2>&1; then
     gio open "$APP_URL" >/dev/null 2>&1 &
   elif command -v xdg-open >/dev/null 2>&1; then

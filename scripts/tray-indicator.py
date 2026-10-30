@@ -16,6 +16,7 @@ from gi.repository import GLib
 
 ICONS_DIR = os.path.expanduser("~/.local/share/nuvem-linux/icons")
 SYNC_FOLDERS_PATH = os.path.expanduser("~/.local/share/nuvem-linux/sync-folders.json")
+UPDATE_CACHE_PATH = os.path.expanduser("~/.local/share/nuvem-linux/update-check.json")
 API_BASE = "http://localhost:4173/api"
 
 def open_dashboard():
@@ -300,6 +301,23 @@ class NuvemStatusNotifierItem(dbus.service.Object):
         curr_id += 1
         items.append({"id": curr_id, "type": "separator"})
         curr_id += 1
+
+        # Check updates
+        update_info = {}
+        if os.path.exists(UPDATE_CACHE_PATH):
+            try:
+                with open(UPDATE_CACHE_PATH, "r", encoding="utf-8") as uf:
+                    update_info = json.load(uf)
+            except Exception:
+                pass
+
+        if update_info.get("hasUpdate"):
+            tag = update_info.get("latestTag") or update_info.get("latestVersion") or ""
+            items.append({"id": curr_id, "label": f"🚀 Nova versão {tag} disponível!", "enabled": True})
+            actions[curr_id] = {"type": "open_dash"}
+            curr_id += 1
+            items.append({"id": curr_id, "type": "separator"})
+            curr_id += 1
 
         # Actions
         items.append({"id": curr_id, "label": "🔄 Sincronizar tudo agora", "enabled": not all_paused})

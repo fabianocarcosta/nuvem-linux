@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   buildInitialPlan,
+  compareSemver,
   conflictCopyPath,
   isRcloneSupported,
   normalizeDrivePath,
@@ -86,5 +87,16 @@ test('parseConflictName correctly resolves conflict filenames to their original 
   assert.equal(parseConflictName('arquivo_normal.txt'), null)
   assert.equal(parseConflictName(''), null)
 })
+
+test('compareSemver correctly compares semantic versions', () => {
+  assert.equal(compareSemver('0.2.1', '0.2.0'), 1)
+  assert.equal(compareSemver('v0.2.1', '0.2.0'), 1)
+  assert.equal(compareSemver('1.0.0', '0.2.0'), 1)
+  assert.equal(compareSemver('0.2.0', 'v0.2.0'), 0)
+  assert.equal(compareSemver('0.1.3', '0.2.0'), -1)
+  assert.equal(compareSemver('0.2.0', '0.2.1'), -1)
+  assert.equal(compareSemver('0.2', '0.2.0'), 0)
+})
+
 
 

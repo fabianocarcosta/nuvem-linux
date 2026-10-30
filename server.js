@@ -14,6 +14,7 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 import {
   buildInitialPlan,
+  compareSemver,
   conflictCopyPath,
   normalizeDrivePath,
   parseConflictName,
@@ -31,11 +32,18 @@ const dataDir = path.join(homedir(), '.local', 'share', 'nuvem-linux')
 const dataFile = path.join(dataDir, 'sync-folders.json')
 const trashFile = path.join(dataDir, 'sync-trash.json')
 const activityFile = path.join(dataDir, 'sync-activity.json')
+const updateCacheFile = path.join(dataDir, 'update-check.json')
 const connectFile = path.join(dataDir, 'connect-process.json')
 const accountFile = path.join(dataDir, 'drive-account.json')
 const storageFile = path.join(dataDir, 'drive-storage.json')
 const driveCacheFile = path.join(dataDir, 'drive-listings.json')
 const retentionMs = 30 * 24 * 60 * 60 * 1000
+
+let APP_VERSION = '0.2.0'
+try {
+  const pkg = JSON.parse(readFileSync(path.join(__dirname, 'package.json'), 'utf8'))
+  if (pkg.version) APP_VERSION = pkg.version
+} catch {}
 
 app.use(express.json({ limit: '1mb' }))
 app.use(express.static('dist'))
@@ -595,6 +603,99 @@ async function recordTrashItem(item) {
 async function notify(title, message) {
   try { await runCommand('notify-send', ['--app-name=Nuvem Linux', title, String(message).slice(0, 300)], { timeoutMs: 5000 }) } catch {}
 }
+
+let cachedUpdateInfo = null
+
+async function getUpdateStatus(force = false) {
+  try {
+    if (!cachedUpdateInfo) {
+      cachedUpdateInfo = await readJson(updateCacheFile, null)
+    }
+
+    const now = Date.now()
+    const fourHours = 4 * 60 * 60 * 1000
+    if (!force && cachedUpdateInfo && (now - (cachedUpdateInfo.lastChecked || 0) < fourHours)) {
+      return { ...cachedUpdateInfo, currentVersion: APP_VERSION }
+    }
+
+    const res = await fetch('https://api.github.com/repos/fabianocarcosta/nuvem-linux/releases/latest', {
+      headers: {
+        'User-Agent': `nuvem-linux/${APP_VERSION}`,
+        'Accept': 'application/vnd.github.v3+json',
+      },
+      signal: AbortSignal.timeout(10_000),
+    })
+
+    if (!res.ok) {
+      if (cachedUpdateInfo) return { ...cachedUpdateInfo, currentVersion: APP_VERSION }
+      return {
+        currentVersion: APP_VERSION,
+        latestVersion: APP_VERSION,
+        latestTag: `v${APP_VERSION}`,
+        hasUpdate: false,
+        error: `GitHub API HTTP ${res.status}`,
+        lastChecked: now,
+      }
+    }
+
+    const data = await res.json()
+    const latestTag = data.tag_name || ''
+    const cleanTag = latestTag.replace(/^v/i, '')
+    const hasUpdate = compareSemver(cleanTag, APP_VERSION) > 0
+
+    let debUrl = null
+    let appImageUrl = null
+    if (Array.isArray(data.assets)) {
+      for (const asset of data.assets) {
+        if (asset.name.endsWith('.deb')) debUrl = asset.browser_download_url
+        if (asset.name.endsWith('.AppImage')) appImageUrl = asset.browser_download_url
+      }
+    }
+
+    const lastNotified = cachedUpdateInfo?.lastNotifiedVersion || null
+
+    cachedUpdateInfo = {
+      currentVersion: APP_VERSION,
+      latestVersion: cleanTag,
+      latestTag,
+      hasUpdate,
+      releaseName: data.name || latestTag,
+      releaseUrl: data.html_url || 'https://github.com/fabianocarcosta/nuvem-linux/releases',
+      releaseNotes: data.body || '',
+      publishedAt: data.published_at || null,
+      debUrl,
+      appImageUrl,
+      lastChecked: now,
+      lastNotifiedVersion: lastNotified,
+    }
+
+    if (hasUpdate && lastNotified !== latestTag) {
+      cachedUpdateInfo.lastNotifiedVersion = latestTag
+      await notify(
+        'Atualização do Nuvem Linux!',
+        `Uma nova versão (${latestTag}) está disponível com novidades. Abra o aplicativo para atualizar.`
+      )
+      await recordActivity({
+        type: 'update_available',
+        folderName: 'Nuvem Linux',
+        message: `Nova versão ${latestTag} disponível no GitHub para atualização.`,
+      })
+    }
+
+    await writeJson(updateCacheFile, cachedUpdateInfo)
+    return { ...cachedUpdateInfo, currentVersion: APP_VERSION }
+  } catch (err) {
+    if (cachedUpdateInfo) return { ...cachedUpdateInfo, currentVersion: APP_VERSION }
+    return {
+      currentVersion: APP_VERSION,
+      latestVersion: APP_VERSION,
+      latestTag: `v${APP_VERSION}`,
+      hasUpdate: false,
+      error: err.message,
+      lastChecked: Date.now(),
+    }
+  }
+}
 async function recordRemoteDeletion(folder, entry) {
   if (!entry?.ID) return
   const deletedAt = Date.now()
@@ -867,7 +968,7 @@ async function restoreGoogleDriveItem(item) {
 }
 
 app.get('/api/status', async (_req, res) => {
-  const [health, active] = await Promise.all([rcloneHealth(), readActiveConnect()])
+  const [health, active, updateInfo] = await Promise.all([rcloneHealth(), readActiveConnect(), getUpdateStatus(false)])
   if (active) connectJob = { state: 'authorizing', remote: active.remote, message: 'Aguardando autorização do Google…', url: null }
   let remotes = []
   try { remotes = driveRemotes(await rcloneConfig()) } catch {}
@@ -881,7 +982,18 @@ app.get('/api/status', async (_req, res) => {
     ? { state: 'connected', remote: accounts[0].remote, message: 'Google Drive conectado.' }
     : { state: 'error', message: 'A autorização não foi concluída. Tente conectar novamente.' }
   const folders = await readFolders()
-  res.json({ rclone: health, connected: accounts.length > 0, remotes, accounts, connectJob, folders: folders.map(sanitizeFolder), homeDir: homedir() })
+  res.json({ rclone: health, connected: accounts.length > 0, remotes, accounts, connectJob, folders: folders.map(sanitizeFolder), homeDir: homedir(), updateInfo })
+})
+
+app.get('/api/updates', async (req, res) => {
+  const force = req.query.check === 'true'
+  const info = await getUpdateStatus(force)
+  res.json(info)
+})
+
+app.post('/api/updates/check', async (_req, res) => {
+  const info = await getUpdateStatus(true)
+  res.json(info)
 })
 
 app.get('/api/drive/files', async (req, res) => {
@@ -1539,4 +1651,10 @@ await initializeServiceState()
 updateFolderWatchers(await readFolders())
 scheduleNextCycle(30_000)
 startTrayIndicator()
+setTimeout(() => {
+  getUpdateStatus(false).catch(() => {})
+}, 3000)
+setInterval(() => {
+  getUpdateStatus(false).catch(() => {})
+}, 4 * 60 * 60 * 1000)
 app.listen(port, '127.0.0.1', () => console.log(`Nuvem Linux em http://localhost:${port}`))

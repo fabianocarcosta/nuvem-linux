@@ -5,6 +5,8 @@ import {
   conflictCopyPath,
   isRcloneSupported,
   normalizeDrivePath,
+  parseConflictName,
+  parseIgnorePatterns,
   pathsOverlap,
   validatePairOverlap,
 } from '../lib/sync-domain.js'
@@ -60,3 +62,29 @@ test('conflict copy names keep the extension and avoid existing names', () => {
   const paths = new Set(['docs/report (conflito Google Drive stamp).pdf'])
   assert.equal(conflictCopyPath('docs/report.pdf', paths, 'stamp'), 'docs/report (conflito Google Drive stamp) 2.pdf')
 })
+
+test('parseIgnorePatterns strips comments and empty lines and trims whitespace', () => {
+  const raw = `
+    # Comentário
+    node_modules/
+    *.iso
+
+    # Outro comentário
+    .git/**
+  `
+  assert.deepEqual(parseIgnorePatterns(raw), ['node_modules/', '*.iso', '.git/**'])
+  assert.deepEqual(parseIgnorePatterns(''), [])
+  assert.deepEqual(parseIgnorePatterns(null), [])
+})
+
+test('parseConflictName correctly resolves conflict filenames to their original target', () => {
+  assert.equal(parseConflictName('doc (conflito Google Drive 2026-10-30).pdf'), 'doc.pdf')
+  assert.equal(parseConflictName('doc (conflito Google Drive 2026-10-30) 2.pdf'), 'doc.pdf')
+  assert.equal(parseConflictName('nomes_familia (Cópia em conflito de DESKTOP-MKGV5A7 2018-12-20).xlsx'), 'nomes_familia.xlsx')
+  assert.equal(parseConflictName('projeto.conflito1.zip'), 'projeto.zip')
+  assert.equal(parseConflictName('notes.txt.conflito2'), 'notes.txt')
+  assert.equal(parseConflictName('arquivo_normal.txt'), null)
+  assert.equal(parseConflictName(''), null)
+})
+
+

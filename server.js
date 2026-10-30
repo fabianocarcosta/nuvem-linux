@@ -2,11 +2,13 @@ import express from 'express'
 import { spawn, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { randomUUID } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
 import { access, chmod, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Readable } from 'node:stream'
+import chokidar from 'chokidar'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -14,6 +16,8 @@ import {
   buildInitialPlan,
   conflictCopyPath,
   normalizeDrivePath,
+  parseConflictName,
+  parseIgnorePatterns,
   pathsOverlap,
   validatePairOverlap,
 } from './lib/sync-domain.js'
@@ -26,6 +30,7 @@ const port = Number(process.env.PORT || 4173)
 const dataDir = path.join(homedir(), '.local', 'share', 'nuvem-linux')
 const dataFile = path.join(dataDir, 'sync-folders.json')
 const trashFile = path.join(dataDir, 'sync-trash.json')
+const activityFile = path.join(dataDir, 'sync-activity.json')
 const connectFile = path.join(dataDir, 'connect-process.json')
 const accountFile = path.join(dataDir, 'drive-account.json')
 const storageFile = path.join(dataDir, 'drive-storage.json')
@@ -65,7 +70,263 @@ async function readFolders() {
     status: folder.status && typeof folder.status === 'object' ? folder.status : { state: 'waiting', message: 'Aguardando primeira sincronização.' },
   }))
 }
-async function saveFolders(rows) { await writeJson(dataFile, rows) }
+async function readActivity() {
+  return readJson(activityFile, [])
+}
+async function recordActivity(entry) {
+  try {
+    const list = await readActivity()
+    const item = {
+      id: randomUUID(),
+      timestamp: Date.now(),
+      ...entry,
+    }
+    list.unshift(item)
+    if (list.length > 80) list.length = 80
+    await writeJson(activityFile, list)
+    return item
+  } catch (err) {
+    console.warn('Erro ao registrar atividade:', err.message)
+    return null
+  }
+}
+
+const watchers = new Map()
+const debounceTimers = new Map()
+
+function getFolderIgnorePatterns(folder) {
+  const defaultIgnored = [
+    '**/.nuvem-linux-trash/**',
+    '**/.nuvem-linux-backups/**',
+    '**/.~lock.*#',
+    '**/~$*',
+    '**/*.tmp',
+    '**/.git/**',
+    '**/node_modules/**',
+  ]
+  const ignoreFile = path.join(folder.localPath, '.nuvemignore')
+  if (existsSync(ignoreFile)) {
+    try {
+      const content = readFileSync(ignoreFile, 'utf8')
+      const custom = parseIgnorePatterns(content).map(p => {
+        return p.endsWith('/') ? `**/${p}**` : `**/${p}`
+      })
+      return [...defaultIgnored, ...custom]
+    } catch {}
+  }
+  return defaultIgnored
+}
+
+function stopFolderWatcher(folderId) {
+  if (debounceTimers.has(folderId)) {
+    clearTimeout(debounceTimers.get(folderId))
+    debounceTimers.delete(folderId)
+  }
+  const watcher = watchers.get(folderId)
+  if (watcher) {
+    watcher.close().catch(() => {})
+    watchers.delete(folderId)
+  }
+}
+
+function startFolderWatcher(folder) {
+  stopFolderWatcher(folder.id)
+  if (!folder.initialized || folder.paused || !existsSync(folder.localPath)) return
+
+  try {
+    const ignored = getFolderIgnorePatterns(folder)
+    const watcher = chokidar.watch(folder.localPath, {
+      ignored,
+      persistent: true,
+      ignoreInitial: true,
+      ignorePermissionErrors: true,
+      awaitWriteFinish: {
+        stabilityThreshold: 1500,
+        pollInterval: 250,
+      },
+    })
+
+    const onFileEvent = (event, filePath) => {
+      if (filePath.includes('.nuvem-linux-trash') || filePath.includes('.nuvem-linux-backups')) return
+
+      if (debounceTimers.has(folder.id)) {
+        clearTimeout(debounceTimers.get(folder.id))
+      }
+      const timer = setTimeout(() => {
+        debounceTimers.delete(folder.id)
+        if (!activeSync.has(folder.id) && !folder.paused) {
+          console.log(`[Watch] Alteração em "${path.basename(filePath)}" (${event}) -> disparando sincronização de "${path.basename(folder.localPath)}"`)
+          runFolderSync(folder.id).catch(err => {
+            console.error(`[Watch] Erro ao sincronizar ${folder.localPath}:`, err.message)
+          })
+        }
+      }, 2500)
+      timer.unref()
+      debounceTimers.set(folder.id, timer)
+    }
+
+    watcher.on('add', p => onFileEvent('add', p))
+    watcher.on('change', p => onFileEvent('change', p))
+    watcher.on('unlink', p => onFileEvent('unlink', p))
+    watcher.on('error', err => console.warn(`[Watch] Erro no observador de ${folder.localPath}:`, err.message))
+
+    watchers.set(folder.id, watcher)
+  } catch (err) {
+    console.warn(`[Watch] Falha ao iniciar observador para ${folder.localPath}:`, err.message)
+  }
+}
+
+function updateFolderWatchers(folders) {
+  const activeIds = new Set()
+  for (const folder of folders) {
+    if (!folder.initialized || folder.paused || !existsSync(folder.localPath)) {
+      stopFolderWatcher(folder.id)
+      continue
+    }
+    activeIds.add(folder.id)
+    if (!watchers.has(folder.id)) {
+      startFolderWatcher(folder)
+    }
+  }
+  for (const id of Array.from(watchers.keys())) {
+    if (!activeIds.has(id)) {
+      stopFolderWatcher(id)
+    }
+  }
+}
+
+function stopAllFolderWatchers() {
+  for (const id of Array.from(watchers.keys())) {
+    stopFolderWatcher(id)
+  }
+}
+
+const syncProgress = {
+  active: false,
+  folderId: null,
+  folderName: null,
+  speed: 0,
+  bytes: 0,
+  totalBytes: 0,
+  percentage: 0,
+  transfers: 0,
+  totalTransfers: 0,
+  transferring: [],
+  recentTransfers: [],
+  startedAt: 0,
+  lastUpdated: 0,
+}
+
+let rcloneLogBuffer = ''
+function processRcloneChunk(chunk, folder) {
+  rcloneLogBuffer += chunk
+  const lines = rcloneLogBuffer.split('\n')
+  rcloneLogBuffer = lines.pop() || ''
+  for (const line of lines) {
+    if (!line.trim()) continue
+    try {
+      const data = JSON.parse(line.trim())
+      if (data.stats) {
+        const s = data.stats
+        syncProgress.active = true
+        syncProgress.folderId = folder.id
+        syncProgress.folderName = path.basename(folder.localPath)
+        syncProgress.speed = s.speed || 0
+        syncProgress.bytes = s.bytes || 0
+        syncProgress.totalBytes = s.totalBytes || 0
+        syncProgress.percentage = s.totalBytes > 0 ? Math.min(100, Math.round((s.bytes / s.totalBytes) * 100)) : 0
+        syncProgress.transfers = s.transfers || 0
+        syncProgress.totalTransfers = s.totalTransfers || 0
+        if (Array.isArray(s.transferring)) {
+          syncProgress.transferring = s.transferring.map(t => ({
+            name: t.name,
+            percentage: t.percentage || 0,
+            size: t.size || 0,
+            bytes: t.bytes || 0,
+            speed: t.speed || 0,
+            eta: t.eta,
+          }))
+        }
+        syncProgress.lastUpdated = Date.now()
+      }
+      if (data.object && (data.msg?.includes('Copied') || data.msg?.includes('Deleted') || data.msg?.includes('Moved'))) {
+        syncProgress.recentTransfers.unshift({
+          name: data.object,
+          size: data.size || 0,
+          action: data.msg.includes('Copied') ? 'upload_download' : data.msg.includes('Deleted') ? 'delete' : 'move',
+          msg: data.msg,
+          time: Date.now(),
+        })
+        if (syncProgress.recentTransfers.length > 30) syncProgress.recentTransfers.length = 30
+      }
+    } catch {}
+  }
+}
+
+async function findFolderConflicts(folder) {
+  const conflicts = []
+  if (!folder.localPath || !existsSync(folder.localPath)) return conflicts
+
+  async function scan(dir, relPrefix = '') {
+    try {
+      const entries = await readdir(dir, { withFileTypes: true })
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name)
+        const relPath = relPrefix ? `${relPrefix}/${entry.name}` : entry.name
+
+        if (entry.isDirectory()) {
+          if (!['.nuvem-linux-trash', '.nuvem-linux-backups', 'node_modules', '.git'].includes(entry.name)) {
+            await scan(fullPath, relPath)
+          }
+        } else if (entry.isFile()) {
+          const originalName = parseConflictName(entry.name)
+          if (originalName) {
+            const originalFullPath = path.join(dir, originalName)
+            const conflictStat = await stat(fullPath).catch(() => null)
+            const originalStat = await stat(originalFullPath).catch(() => null)
+            conflicts.push({
+              id: Buffer.from(relPath).toString('base64url'),
+              folderId: folder.id,
+              folderName: path.basename(folder.localPath),
+              conflictFile: entry.name,
+              originalFile: originalName,
+              relativeConflictPath: relPath,
+              relativeOriginalPath: relPrefix ? `${relPrefix}/${originalName}` : originalName,
+              conflictPath: fullPath,
+              originalPath: originalFullPath,
+              conflictSize: conflictStat?.size || 0,
+              originalSize: originalStat?.size || 0,
+              conflictMtime: conflictStat?.mtimeMs || 0,
+              originalMtime: originalStat?.mtimeMs || 0,
+              hasOriginal: !!originalStat,
+            })
+          }
+        }
+      }
+    } catch {}
+  }
+
+  await scan(folder.localPath)
+  return conflicts
+}
+
+async function listAllConflicts() {
+  const folders = await readFolders()
+  const all = []
+  for (const folder of folders) {
+    if (folder.localPath && existsSync(folder.localPath)) {
+      const found = await findFolderConflicts(folder)
+      all.push(...found)
+    }
+  }
+  return all
+}
+
+
+async function saveFolders(rows) {
+  await writeJson(dataFile, rows)
+  updateFolderWatchers(rows)
+}
 async function changeFolder(id, updater) {
   const rows = await readFolders()
   const index = rows.findIndex(item => item.id === id)
@@ -227,10 +488,26 @@ async function computeFileMd5(filePath) {
 }
 
 async function listLocalFiles(localPath) {
-  return jsonEntries(['lsjson', '--recursive', '--files-only', '--skip-links', localPath])
+  const args = ['lsjson', '--recursive', '--files-only', '--skip-links']
+  const ignoreFile = path.join(localPath, '.nuvemignore')
+  if (existsSync(ignoreFile)) {
+    args.push('--exclude-from', ignoreFile)
+  }
+  args.push(localPath)
+  return jsonEntries(args)
 }
-async function listRemoteFiles(remote, remotePath) {
-  try { return await jsonEntries(['lsjson', '--recursive', '--files-only', '--hash', `${remote}:${remotePath}`]) }
+async function listRemoteFiles(remote, remotePath, localPath = null) {
+  try {
+    const args = ['lsjson', '--recursive', '--files-only', '--hash']
+    if (localPath) {
+      const ignoreFile = path.join(localPath, '.nuvemignore')
+      if (existsSync(ignoreFile)) {
+        args.push('--exclude-from', ignoreFile)
+      }
+    }
+    args.push(`${remote}:${remotePath}`)
+    return await jsonEntries(args)
+  }
   catch (error) {
     if (/directory not found|doesn.t exist|not found/i.test(error.message)) return []
     throw error
@@ -247,7 +524,7 @@ async function folderSnapshot(folder) {
   await requireSupportedRclone()
   const [local, remote] = await Promise.all([
     listLocalFiles(folder.localPath),
-    listRemoteFiles(folder.remote, folder.remotePath),
+    listRemoteFiles(folder.remote, folder.remotePath, folder.localPath),
   ])
   if (remote.length > 0 && local.length > 0) {
     const remotePaths = new Set(remote.map(r => r.Path))
@@ -269,10 +546,19 @@ function makeRcloneSyncArgs(folder, initial = false) {
   const args = ['bisync', folder.localPath, `${folder.remote}:${folder.remotePath}`,
     '--log-level', 'INFO', '--retries', '3', '--retries-sleep', '10s',
     '--skip-links',
+    '--use-json-log',
+    '--stats', '1s',
     '--exclude', '/.nuvem-linux-trash/**',
+    '--exclude', '.nuvem-linux-backups/**',
     '--exclude', '.~lock.*#',
     '--exclude', '~$*',
     '--exclude', '*.tmp']
+
+  const ignoreFile = path.join(folder.localPath, '.nuvemignore')
+  if (existsSync(ignoreFile)) {
+    args.push('--exclude-from', ignoreFile)
+  }
+
   const localBackup = path.join(dataDir, 'bisync-backups', folder.id)
   const remoteBackup = `${folder.remote}:.nuvem-linux-backups/${folder.id}`
   args.push('--backup-dir1', localBackup, '--backup-dir2', remoteBackup)
@@ -358,11 +644,16 @@ async function applyInitialSync(folder, freshSnapshot) {
     await runRclone(['copyto', `${folder.remote}:${remotePathFor(folder, conflict.path)}`, localCopy], { timeoutMs: 180_000 })
     await runRclone(['copyto', localCopy, `${folder.remote}:${remotePathFor(folder, copyPath)}`], { timeoutMs: 180_000 })
   }
-  return runRclone(makeRcloneSyncArgs(folder, true), { timeoutMs: 60 * 60_000, maxOutput: 32 * 1024 * 1024 })
+  return runRclone(makeRcloneSyncArgs(folder, true), {
+    timeoutMs: 60 * 60_000,
+    maxOutput: 32 * 1024 * 1024,
+    onLogChunk: chunk => processRcloneChunk(chunk, folder),
+  })
 }
 function detectConflictNames(output) {
   const names = new Set()
-  for (const match of String(output).matchAll(/([^\s"']+\.conflito\d+)/gi)) names.add(match[1])
+  for (const match of String(output).matchAll(/([^\s"']+\.conflito\d+(?:\.[^"'\s]+)?)/gi)) names.add(match[1])
+  for (const match of String(output).matchAll(/([^\s"']+\s*\(conflito[^\)]*\)[^"'\s]*)/gi)) names.add(match[1])
   return [...names]
 }
 async function runFolderSync(folderId, options = {}) {
@@ -372,6 +663,13 @@ async function runFolderSync(folderId, options = {}) {
   if (!folder) { activeSync.delete(folderId); return { state: 'error', message: 'Pasta não encontrada.' } }
   if (folder.paused) { activeSync.delete(folderId); return { state: 'paused', message: 'Sincronização pausada.' } }
   try {
+    syncProgress.active = true
+    syncProgress.folderId = folderId
+    syncProgress.folderName = path.basename(folder.localPath)
+    syncProgress.startedAt = Date.now()
+    syncProgress.transferring = []
+    syncProgress.percentage = 0
+
     folder.status = { ...folder.status, state: 'syncing', message: folder.initialized ? 'Sincronizando PC e Google Drive…' : 'Preparando a primeira sincronização…', startedAt: Date.now() }
     await changeFolder(folderId, current => ({ ...current, status: folder.status }))
 
@@ -393,7 +691,11 @@ async function runFolderSync(folderId, options = {}) {
       let result
       const needsResync = oldBaseline.length === 0
       try {
-        result = await runRclone(makeRcloneSyncArgs(folder, needsResync), { timeoutMs: 60 * 60_000, maxOutput: 32 * 1024 * 1024 })
+        result = await runRclone(makeRcloneSyncArgs(folder, needsResync), {
+          timeoutMs: 60 * 60_000,
+          maxOutput: 32 * 1024 * 1024,
+          onLogChunk: chunk => processRcloneChunk(chunk, folder),
+        })
       } catch (err) {
         const errText = `${err?.message || ''} ${err?.stderr || ''} ${err?.stdout || ''}`
         if (
@@ -403,7 +705,11 @@ async function runFolderSync(folderId, options = {}) {
            errText.includes('bisync aborted') ||
            errText.includes('cannot find prior'))
         ) {
-          result = await runRclone(makeRcloneSyncArgs(folder, true), { timeoutMs: 60 * 60_000, maxOutput: 32 * 1024 * 1024 })
+          result = await runRclone(makeRcloneSyncArgs(folder, true), {
+            timeoutMs: 60 * 60_000,
+            maxOutput: 32 * 1024 * 1024,
+            onLogChunk: chunk => processRcloneChunk(chunk, folder),
+          })
         } else {
           throw err
         }
@@ -426,9 +732,37 @@ async function runFolderSync(folderId, options = {}) {
           lastSuccess: Date.now(), lastError: null, conflicts: conflictNames,
         },
       }))
+      await recordActivity({
+        type: conflictNames.length ? 'conflict' : 'sync_ok',
+        folderId,
+        folderName: path.basename(folder.localPath),
+        localPath: folder.localPath,
+        conflicts: conflictNames,
+        message: conflictNames.length
+          ? `${conflictNames.length} versão(ões) conflitante(s) preservada(s) em ${path.basename(folder.localPath)}.`
+          : `Sincronização de "${path.basename(folder.localPath)}" concluída com sucesso.`,
+      })
       if (conflictNames.length) await notify('Conflito preservado', `${conflictNames.length} cópia(s) conflitante(s) foram mantidas em ${path.basename(folder.localPath)}.`)
-      if (movedToLinuxTrash) await notify('Exclusão do Drive sincronizada', `${movedToLinuxTrash} item(ns) foram movidos para a lixeira do Linux.`)
-      if (localDeleted.length) await notify('Exclusão local sincronizada', `${localDeleted.length} item(ns) foram movidos para a lixeira do Google Drive.`)
+      if (movedToLinuxTrash) {
+        await recordActivity({
+          type: 'trash_linux',
+          folderId,
+          folderName: path.basename(folder.localPath),
+          count: movedToLinuxTrash,
+          message: `${movedToLinuxTrash} item(ns) movidos para a lixeira do Linux.`,
+        })
+        await notify('Exclusão do Drive sincronizada', `${movedToLinuxTrash} item(ns) foram movidos para a lixeira do Linux.`)
+      }
+      if (localDeleted.length) {
+        await recordActivity({
+          type: 'trash_drive',
+          folderId,
+          folderName: path.basename(folder.localPath),
+          count: localDeleted.length,
+          message: `${localDeleted.length} item(ns) movidos para a lixeira do Google Drive.`,
+        })
+        await notify('Exclusão local sincronizada', `${localDeleted.length} item(ns) foram movidos para a lixeira do Google Drive.`)
+      }
       if (remoteDeleted) await notify('Exclusão do Drive sincronizada', `${remoteDeleted} item(ns) foram removidos do Linux; o Google Drive mantém os itens na lixeira.`)
       return updated.status
     }
@@ -441,9 +775,22 @@ async function runFolderSync(folderId, options = {}) {
       baseline: mergeBaseline(after.local, after.remote),
       status: { state: 'ok', message: 'Primeira sincronização concluída.', lastSuccess: Date.now(), lastError: null, conflicts: [] },
     }))
+    await recordActivity({
+      type: 'first_sync_ok',
+      folderId,
+      folderName: path.basename(folder.localPath),
+      localPath: folder.localPath,
+      message: `Primeira sincronização de "${path.basename(folder.localPath)}" concluída.`,
+    })
     return updated.status
   } catch (error) {
     const message = error.message || 'Falha durante a sincronização.'
+    await recordActivity({
+      type: 'error',
+      folderId,
+      folderName: folder ? path.basename(folder.localPath) : folderId,
+      message: `Erro na sincronização: ${message}`,
+    })
     const updated = await changeFolder(folderId, current => ({
       ...current,
       status: { ...current.status, state: 'error', message, lastError: message, failedAt: Date.now() },
@@ -455,6 +802,11 @@ async function runFolderSync(folderId, options = {}) {
     return { state: 'error', message }
   } finally {
     activeSync.delete(folderId)
+    if (activeSync.size === 0) {
+      syncProgress.active = false
+      syncProgress.transferring = []
+      syncProgress.speed = 0
+    }
   }
 }
 
@@ -471,8 +823,12 @@ function isWithinFolder(parent, child) {
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel))
 }
 async function validateLocalFolder(input) {
-  if (typeof input !== 'string' || !path.isAbsolute(input)) throw new Error('Informe um caminho absoluto para uma pasta local.')
-  const absolute = await realpath(input)
+  if (typeof input !== 'string' || !input.trim()) throw new Error('Informe um caminho para uma pasta local.')
+  const trimmed = input.trim()
+  const resolved = trimmed.startsWith('~/') ? path.join(homedir(), trimmed.slice(2)) : trimmed
+  if (!path.isAbsolute(resolved)) throw new Error('Informe um caminho absoluto para uma pasta local.')
+  await mkdir(resolved, { recursive: true })
+  const absolute = await realpath(resolved)
   if (!(await stat(absolute)).isDirectory()) throw new Error('O caminho local precisa ser uma pasta.')
   if (absolute === path.parse(absolute).root || absolute === homedir()) throw new Error('Escolha uma subpasta específica, não a raiz nem a pasta pessoal inteira.')
   return absolute
@@ -525,7 +881,7 @@ app.get('/api/status', async (_req, res) => {
     ? { state: 'connected', remote: accounts[0].remote, message: 'Google Drive conectado.' }
     : { state: 'error', message: 'A autorização não foi concluída. Tente conectar novamente.' }
   const folders = await readFolders()
-  res.json({ rclone: health, connected: accounts.length > 0, remotes, accounts, connectJob, folders: folders.map(sanitizeFolder) })
+  res.json({ rclone: health, connected: accounts.length > 0, remotes, accounts, connectJob, folders: folders.map(sanitizeFolder), homeDir: homedir() })
 })
 
 app.get('/api/drive/files', async (req, res) => {
@@ -792,8 +1148,212 @@ app.post('/api/folders', async (req, res) => {
     folder.status = { state: 'preview', message: 'Prévia pronta. Revise antes de aplicar.' }
     rows.push(folder)
     await saveFolders(rows)
+    await recordActivity({
+      type: 'folder_added',
+      folderId: folder.id,
+      folderName: path.basename(folder.localPath),
+      localPath: folder.localPath,
+      remotePath: `${folder.remote}:${folder.remotePath}`,
+      message: `Nova pasta configurada: ${folder.localPath} → ${folder.remote}:${folder.remotePath}`,
+    })
     res.json(sanitizeFolder(folder))
   } catch (error) { res.status(400).json({ error: error.message }) }
+})
+
+app.get('/api/activity', async (_req, res) => {
+  res.json(await readActivity())
+})
+
+app.get('/api/sync/queue', async (_req, res) => {
+  const folders = await readFolders()
+  const activeFolders = folders.filter(f => activeSync.has(f.id))
+  res.json({
+    ...syncProgress,
+    activeFolders: activeFolders.map(f => ({ id: f.id, name: path.basename(f.localPath), path: f.localPath })),
+  })
+})
+
+app.get('/api/conflicts', async (_req, res) => {
+  try {
+    const list = await listAllConflicts()
+    res.json({ conflicts: list })
+  } catch (error) {
+    res.status(500).json({ error: error.message, conflicts: [] })
+  }
+})
+
+app.post('/api/conflicts/resolve', async (req, res) => {
+  try {
+    const { folderId, conflictPath, resolution: rawResolution, action } = req.body || {}
+    const resolution = rawResolution || action
+    if (!folderId || !conflictPath || !resolution) {
+      return res.status(400).json({ error: 'Parâmetros incompletos para resolver o conflito.' })
+    }
+    const folders = await readFolders()
+    const folder = folders.find(f => f.id === folderId)
+    if (!folder) return res.status(404).json({ error: 'Pasta sincronizada não encontrada.' })
+
+    const resolvedConflict = path.resolve(conflictPath)
+    if (!isWithinFolder(folder.localPath, resolvedConflict) && resolvedConflict !== folder.localPath) {
+      return res.status(400).json({ error: 'Arquivo fora da pasta sincronizada.' })
+    }
+    if (!existsSync(resolvedConflict)) {
+      return res.status(404).json({ error: 'Arquivo conflitante não encontrado no disco.' })
+    }
+
+    const filename = path.basename(resolvedConflict)
+    const originalName = parseConflictName(filename)
+    if (!originalName) {
+      return res.status(400).json({ error: 'O arquivo especificado não parece ser uma versão conflitante.' })
+    }
+
+    const dir = path.dirname(resolvedConflict)
+    const originalPath = path.join(dir, originalName)
+
+    if (resolution === 'keep_local') {
+      await moveToLinuxTrash(resolvedConflict)
+      await recordActivity({
+        type: 'conflict_resolved',
+        folderId,
+        folderName: path.basename(folder.localPath),
+        message: `Conflito resolvido em "${originalName}": versão local mantida; cópia conflitante enviada à lixeira.`,
+      })
+    } else if (resolution === 'keep_remote') {
+      if (existsSync(originalPath)) {
+        await moveToLinuxTrash(originalPath)
+      }
+      await rename(resolvedConflict, originalPath)
+      await recordActivity({
+        type: 'conflict_resolved',
+        folderId,
+        folderName: path.basename(folder.localPath),
+        message: `Conflito resolvido em "${originalName}": versão da nuvem aplicada sobre a versão local.`,
+      })
+    } else if (resolution === 'keep_both') {
+      const ext = path.extname(originalName)
+      const base = path.basename(originalName, ext)
+      let cleanName = `${base} (cópia Google Drive)${ext}`
+      let counter = 2
+      while (existsSync(path.join(dir, cleanName))) {
+        cleanName = `${base} (cópia Google Drive ${counter++})${ext}`
+      }
+      await rename(resolvedConflict, path.join(dir, cleanName))
+      await recordActivity({
+        type: 'conflict_resolved',
+        folderId,
+        folderName: path.basename(folder.localPath),
+        message: `Conflito resolvido em "${originalName}": mantidas ambas as versões como "${cleanName}".`,
+      })
+    } else {
+      return res.status(400).json({ error: 'Tipo de resolução inválido.' })
+    }
+
+    if (!folder.paused && !activeSync.has(folder.id)) {
+      setTimeout(() => runFolderSync(folder.id), 500).unref()
+    }
+
+    res.json({ ok: true, resolution, originalName })
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+app.get('/api/conflicts/diff', async (req, res) => {
+  try {
+    const conflictPath = req.query?.conflictPath
+    if (!conflictPath || !existsSync(conflictPath)) {
+      return res.status(404).json({ error: 'Arquivo conflitante não encontrado.' })
+    }
+    const filename = path.basename(conflictPath)
+    const originalName = parseConflictName(filename)
+    if (!originalName) return res.status(400).json({ error: 'Arquivo inválido.' })
+    const dir = path.dirname(conflictPath)
+    const originalPath = path.join(dir, originalName)
+
+    const isTextExt = /\.(txt|md|json|yml|yaml|qmd|r|py|js|ts|html|css|csv|tsv|sh|xml|log|ini|cfg)$/i.test(originalName)
+    let localContent = ''
+    let remoteContent = ''
+    let isText = false
+
+    if (isTextExt) {
+      try {
+        const cStat = await stat(conflictPath)
+        const oStat = existsSync(originalPath) ? await stat(originalPath) : null
+        if (cStat.size < 512 * 1024 && (!oStat || oStat.size < 512 * 1024)) {
+          remoteContent = await readFile(conflictPath, 'utf8')
+          localContent = oStat ? await readFile(originalPath, 'utf8') : ''
+          isText = true
+        }
+      } catch {}
+    }
+
+    res.json({
+      isText,
+      localContent: isText ? localContent.slice(0, 50000) : null,
+      remoteContent: isText ? remoteContent.slice(0, 50000) : null,
+      originalName,
+      conflictName: filename,
+    })
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+app.post('/api/conflicts/resolve-all', async (req, res) => {
+  try {
+    const { folderId, resolution: rawResolution, action } = req.body || {}
+    const resolution = rawResolution || action
+    if (!resolution || !['keep_local', 'keep_remote', 'keep_both'].includes(resolution)) {
+      return res.status(400).json({ error: 'Tipo de resolução inválido.' })
+    }
+    const folders = await readFolders()
+    const targetFolders = folderId ? folders.filter(f => f.id === folderId) : folders
+    let resolvedCount = 0
+
+    for (const folder of targetFolders) {
+      if (!folder.localPath || !existsSync(folder.localPath)) continue
+      const conflicts = await findFolderConflicts(folder)
+      for (const item of conflicts) {
+        try {
+          const resolvedConflict = item.conflictPath
+          const originalPath = item.originalPath
+          const originalName = item.originalFile
+          const dir = path.dirname(resolvedConflict)
+
+          if (resolution === 'keep_local') {
+            await moveToLinuxTrash(resolvedConflict)
+          } else if (resolution === 'keep_remote') {
+            if (existsSync(originalPath)) {
+              await moveToLinuxTrash(originalPath)
+            }
+            await rename(resolvedConflict, originalPath)
+          } else if (resolution === 'keep_both') {
+            const ext = path.extname(originalName)
+            const base = path.basename(originalName, ext)
+            let cleanName = `${base} (cópia Google Drive)${ext}`
+            let counter = 2
+            while (existsSync(path.join(dir, cleanName))) {
+              cleanName = `${base} (cópia Google Drive ${counter++})${ext}`
+            }
+            await rename(resolvedConflict, path.join(dir, cleanName))
+          }
+          resolvedCount++
+        } catch {}
+      }
+      if (conflicts.length > 0 && !folder.paused && !activeSync.has(folder.id)) {
+        setTimeout(() => runFolderSync(folder.id), 1000).unref()
+      }
+    }
+
+    await recordActivity({
+      type: 'conflict_resolved',
+      message: `Resolução em massa: ${resolvedCount} conflito(s) resolvido(s) com a regra "${resolution === 'keep_local' ? 'Manter Local' : resolution === 'keep_remote' ? 'Manter Drive' : 'Manter Ambos'}".`,
+    })
+
+    res.json({ ok: true, resolvedCount })
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
 })
 
 app.post('/api/folders/:id/preview', async (req, res) => {
@@ -826,9 +1386,18 @@ app.post('/api/folders/:id/resume', async (req, res) => {
 app.delete('/api/folders/:id', async (req, res) => {
   if (activeSync.has(req.params.id)) return res.status(409).json({ error: 'Aguarde a sincronização atual terminar. Os arquivos serão mantidos.' })
   const rows = await readFolders()
+  const removedFolder = rows.find(folder => folder.id === req.params.id)
   const next = rows.filter(folder => folder.id !== req.params.id)
   if (next.length === rows.length) return res.status(404).json({ error: 'Pasta não encontrada.' })
   await saveFolders(next)
+  if (removedFolder) {
+    await recordActivity({
+      type: 'folder_removed',
+      folderId: req.params.id,
+      folderName: path.basename(removedFolder.localPath),
+      message: `Pasta desvinculada da sincronização: ${removedFolder.localPath}`,
+    })
+  }
   res.json({ ok: true, filesKept: true })
 })
 
@@ -958,6 +1527,7 @@ function startTrayIndicator() {
 }
 
 process.on('exit', () => {
+  stopAllFolderWatchers()
   if (trayProcess) {
     try { trayProcess.kill() } catch {}
   }
@@ -966,6 +1536,7 @@ process.on('SIGINT', () => process.exit(0))
 process.on('SIGTERM', () => process.exit(0))
 
 await initializeServiceState()
+updateFolderWatchers(await readFolders())
 scheduleNextCycle(30_000)
 startTrayIndicator()
 app.listen(port, '127.0.0.1', () => console.log(`Nuvem Linux em http://localhost:${port}`))

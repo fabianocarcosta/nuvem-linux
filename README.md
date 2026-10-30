@@ -14,8 +14,8 @@ O **Nuvem Linux** funciona de forma semelhante ao cliente oficial do Dropbox e G
 
 | Pacote | Compatibilidade | Download Direto |
 | :--- | :--- | :--- |
-| **Debian / Ubuntu (`.deb`)** | Ubuntu, Debian, Linux Mint, Pop!_OS | [⬇️ Baixar `.deb` (v0.1.3)](https://github.com/fabianocarcosta/nuvem-linux/releases/download/v0.1.3/nuvem-linux_0.1.3_amd64.deb) |
-| **Portátil (`.AppImage`)** | Qualquer distribuição Linux x86_64 | [⬇️ Baixar `.AppImage` (v0.1.3)](https://github.com/fabianocarcosta/nuvem-linux/releases/download/v0.1.3/Nuvem-Linux-0.1.3-x86_64.AppImage) |
+| **Debian / Ubuntu (`.deb`)** | Ubuntu, Debian, Linux Mint, Pop!_OS | [⬇️ Baixar `.deb` (v0.2.0)](https://github.com/fabianocarcosta/nuvem-linux/releases/download/v0.2.0/nuvem-linux_0.2.0_amd64.deb) |
+| **Portátil (`.AppImage`)** | Qualquer distribuição Linux x86_64 | [⬇️ Baixar `.AppImage` (v0.2.0)](https://github.com/fabianocarcosta/nuvem-linux/releases/download/v0.2.0/Nuvem-Linux-0.2.0-x86_64.AppImage) |
 
 ---
 
@@ -43,10 +43,15 @@ O **Nuvem Linux** funciona de forma semelhante ao cliente oficial do Dropbox e G
 
 ## 🌟 Destaques e Funcionalidades
 
-- **Sincronização Bidirecional em Tempo Real (`rclone bisync`)**: O que você altera no computador vai para o Google Drive; o que altera no Drive baixa para o computador a cada 30 segundos.
+- **Sincronização Bidirecional em Tempo Real (`rclone bisync`)**: O que você altera no computador vai para o Google Drive; o que altera no Drive baixa para o computador continuamente via observador de arquivos e ciclos automáticos.
+- **Central de Resolução de Conflitos**: Interface dedicada com visualização lado a lado, comparação de diferenças (diff) para arquivos de texto, resolução individual (Local, Nuvem ou Ambos) e ações em massa com um clique.
+- **Fila de Sincronização em Tempo Real**: Monitore em tempo real o que está subindo ou descendo, com taxa de transferência (KB/MB/s), barra de progresso e histórico de arquivos concluídos.
+- **Sincronização 1-Clique de Pastas Online**: Sincronize qualquer pasta existente no Google Drive direto para o seu computador, com criação automática do diretório local e download imediato.
+- **Feed de Atividades Recentes**: Histórico com registro detalhado de transferências, sincronizações concluídas, alertas e exclusões sincronizadas.
 - **Auto-recuperação**: Detecta e resolve automaticamente estados de pastas vazias e índices de sincronização sem travar o processo.
 - **Navegador Visual do Google Drive**: Selecione a pasta de destino navegando visualmente pelas pastas do seu Google Drive ou crie novas pastas na hora.
 - **Múltiplas Contas Google**: Conecte mais de uma conta do Google Drive, alterne entre elas com um clique ou desconecte quando desejar.
+- **Tema Claro / Escuro (Dark Mode)**: Suporte completo e nativo a modo escuro com persistência de preferências.
 - **Emblemas de Status nos Arquivos**: Ícones no canto dos arquivos no gerenciador de arquivos (Nautilus) mostrando se o arquivo está sincronizado, pendente ou com erro.
 - **Ícone na Barra Superior (Tray Indicator)**: Mostra o progresso da sincronização na barra de tarefas, com menu rápido para sincronizar, pausar ou abrir pastas locais.
 - **Proteção Antiexclusão Acidental**: Arquivos apagados vão para a lixeira nativa do Google Drive e para a lixeira do Linux, com retenção de 30 dias.
@@ -62,12 +67,12 @@ Ideal para **Ubuntu**, **Debian**, **Linux Mint**, **Pop!_OS** e derivados.
 #### Instalação via terminal (Resolve todas as dependências automaticamente):
 ```bash
 sudo apt update
-sudo apt install ./dist-packages/nuvem-linux_0.1.3_amd64.deb
+sudo apt install ./dist-packages/nuvem-linux_0.2.0_amd64.deb
 ```
 > 💡 *Dica:* O comando `apt install ./arquivo.deb` instala automaticamente o `nodejs`, `rclone`, extensões do Nautilus e pacotes do sistema necessários diretamente dos repositórios oficiais.
 
 #### Instalação gráfica:
-Dê **dois cliques** no arquivo `nuvem-linux_0.1.3_amd64.deb` e clique em **Instalar** na Central de Aplicativos.
+Dê **dois cliques** no arquivo `nuvem-linux_0.2.0_amd64.deb` e clique em **Instalar** na Central de Aplicativos.
 
 ---
 
@@ -76,11 +81,11 @@ Ideal para qualquer distribuição Linux (Fedora, Arch, openSUSE, etc.) sem prec
 
 1. Conceda permissão de execução ao arquivo:
    ```bash
-   chmod +x dist-packages/Nuvem-Linux-0.1.3-x86_64.AppImage
+   chmod +x dist-packages/Nuvem-Linux-0.2.0-x86_64.AppImage
    ```
 2. Execute com dois cliques ou pelo terminal:
    ```bash
-   ./dist-packages/Nuvem-Linux-0.1.3-x86_64.AppImage
+   ./dist-packages/Nuvem-Linux-0.2.0-x86_64.AppImage
    ```
 
 ---
@@ -251,8 +256,8 @@ cd /home/fabiano/nuvem-linux
 npm run package
 ```
 Os arquivos prontos para entrega ficarão na pasta `dist-packages/`:
-- `nuvem-linux_0.1.3_amd64.deb`
-- `Nuvem-Linux-0.1.3-x86_64.AppImage`
+- `nuvem-linux_0.2.0_amd64.deb`
+- `Nuvem-Linux-0.2.0-x86_64.AppImage`
 
 ---
 

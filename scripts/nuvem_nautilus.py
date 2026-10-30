@@ -117,8 +117,19 @@ class NuvemNautilus(GObject.GObject, Nautilus.InfoProvider, Nautilus.MenuProvide
                     base_entry = baseline_map[rel_path]
                     try:
                         st = os.stat(filepath)
-                        # If size matches, it's synchronized
-                        if st.st_size == base_entry.get("Size"):
+                        size_match = (st.st_size == base_entry.get("Size"))
+                        time_match = True
+                        mod_time = base_entry.get("ModTime")
+                        if mod_time:
+                            try:
+                                dt_str = str(mod_time).split(".")[0].rstrip("Z")
+                                base_ts = time.mktime(time.strptime(dt_str, "%Y-%m-%dT%H:%M:%S"))
+                                if abs(st.st_mtime - base_ts) > 2.0:
+                                    time_match = False
+                            except Exception:
+                                pass
+
+                        if size_match and time_match:
                             file.add_emblem("emblem-default")
                         else:
                             file.add_emblem("emblem-synchronizing")

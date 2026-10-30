@@ -1,6 +1,6 @@
 {
   "name": "nuvem-linux",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Cliente nativo de sincronização bidirecional do Google Drive para Linux",
   "author": "Fabiano C Costa <fabianocarvalhodacosta@gmail.com> (Data Fisher)",
   "license": "GPL-3.0-or-later",

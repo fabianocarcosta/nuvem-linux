@@ -429,8 +429,9 @@ function openPdfModal(file){
   const desktopBtn=document.querySelector('#pdfModalDesktopBtn');
   const loading=document.querySelector('#pdfModalLoading');
   if(!modal||!file)return;
-  const inlineUrl=file.url||`/api/drive/download/${encodeURIComponent(file.id)}?remote=${encodeURIComponent(driveRemote)}&inline=true`;
-  const downloadUrl=file.url||`/api/drive/download/${encodeURIComponent(file.id)}?remote=${encodeURIComponent(driveRemote)}`;
+  const qParams=new URLSearchParams({remote:driveRemote,path:file.path||'',name:file.name||''});
+  const inlineUrl=file.url||`/api/drive/download/${encodeURIComponent(file.id)}?${qParams}&inline=true`;
+  const downloadUrl=file.url||`/api/drive/download/${encodeURIComponent(file.id)}?${qParams}`;
   if(nameEl)nameEl.textContent=file.name;
   if(metaEl)metaEl.textContent=isGoogleDoc(file)?'Documento Google (PDF)':(file.size?fmt(file.size):'PDF');
   if(downloadBtn){
@@ -449,7 +450,10 @@ function openPdfModal(file){
 function closePdfModal(){
   const modal=document.querySelector('#pdfModal');
   const iframe=document.querySelector('#pdfViewerFrame');
-  if(iframe)iframe.src='about:blank';
+  if(iframe){
+    try{iframe.contentWindow?.stop()}catch{}
+    iframe.src='about:blank';
+  }
   if(modal)modal.hidden=true;
   currentPdfFile=null;
 }
@@ -459,7 +463,7 @@ async function openDesktopPdf(id,filePath,fileName){
     const res=await fetch(`/api/drive/open-desktop/${encodeURIComponent(id)}`,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({remote:driveRemote,path:filePath||''})
+      body:JSON.stringify({remote:driveRemote,path:filePath||'',name:fileName||''})
     });
     const data=await res.json();
     if(!res.ok)throw new Error(data.error||'Não foi possível abrir o arquivo no computador.');
@@ -637,8 +641,9 @@ function bind(){
       if(isPdfOrDoc(x)){
         openPdfModal(x)
       } else {
+        const qParams=new URLSearchParams({remote:driveRemote,path:x.path||'',name:x.name||''});
         const a=document.createElement('a');
-        a.href=x.url||`/api/drive/download/${encodeURIComponent(x.id)}?remote=${encodeURIComponent(driveRemote)}`;
+        a.href=x.url||`/api/drive/download/${encodeURIComponent(x.id)}?${qParams}`;
         a.download=x.name;
         a.click()
       }
@@ -670,8 +675,9 @@ function bind(){
     if(isPdfDoc&&act==='2'){openDesktopPdf(x.id,x.path,x.name);return}
     const downloadChoice=isPdfDoc?'3':(!isFolder?'1':null);
     if(downloadChoice&&act===downloadChoice){
+      const qParams=new URLSearchParams({remote:driveRemote,path:x.path||'',name:x.name||''});
       const a=document.createElement('a');
-      a.href=x.url||`/api/drive/download/${encodeURIComponent(x.id)}?remote=${encodeURIComponent(driveRemote)}`;
+      a.href=x.url||`/api/drive/download/${encodeURIComponent(x.id)}?${qParams}`;
       a.download=x.name+(isGoogleDoc(x)&&!x.name.toLowerCase().endsWith('.pdf')?'.pdf':'');
       a.click();
       return;

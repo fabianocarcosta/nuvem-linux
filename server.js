@@ -1122,10 +1122,104 @@ app.get('/api/drive/download/:id', async (req, res) => {
     const download = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(120_000) })
     if (!download.ok || !download.body) return res.status(download.status || 502).send('O Google Drive não conseguiu baixar esse arquivo.')
     const filename = metadata.name || 'download'
-    res.setHeader('Content-Type', nativeGoogleFile ? exportType : download.headers.get('content-type') || 'application/octet-stream')
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename + (nativeGoogleFile && !filename.toLowerCase().endsWith('.pdf') ? '.pdf' : ''))}`)
+    const isInline = req.query.inline === 'true'
+    let contentType = nativeGoogleFile ? exportType : download.headers.get('content-type') || 'application/octet-stream'
+    if (filename.toLowerCase().endsWith('.pdf') && (contentType === 'application/octet-stream' || !contentType)) {
+      contentType = 'application/pdf'
+    }
+    const finalFilename = filename + (nativeGoogleFile && !filename.toLowerCase().endsWith('.pdf') ? '.pdf' : '')
+    res.setHeader('Content-Type', contentType)
+    res.setHeader('Content-Disposition', `${isInline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(finalFilename)}`)
     Readable.fromWeb(download.body).pipe(res)
   } catch (error) { if (!res.headersSent) res.status(400).send(error.message); else res.destroy(error) }
+})
+
+app.post('/api/drive/open-desktop/:id', async (req, res) => {
+  try {
+    const remote = String(req.body?.remote || req.query.remote || '')
+    if (!/^[a-zA-Z0-9_-]{2,40}$/.test(remote)) return res.status(400).json({ error: 'Conta Google Drive inválida.' })
+    const filePathOnDrive = String(req.body?.path || '')
+
+    const folders = await readFolders()
+    let localPath = null
+
+    for (const folder of folders) {
+      if (folder.remote === remote && folder.initialized && !folder.paused && filePathOnDrive) {
+        const rel = path.posix.relative(folder.remotePath, filePathOnDrive)
+        if (rel && !rel.startsWith('..') && !path.posix.isAbsolute(rel)) {
+          const candidate = path.join(folder.localPath, ...rel.split('/'))
+          if (existsSync(candidate)) {
+            localPath = candidate
+            break
+          }
+        }
+      }
+    }
+
+    if (!localPath) {
+      const token = await getConfigAccessToken(remote)
+      const metadataResponse = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(req.params.id)}?supportsAllDrives=true&fields=name,mimeType`, {
+        headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000),
+      })
+      const metadata = await metadataResponse.json().catch(() => ({}))
+      if (!metadataResponse.ok) return res.status(metadataResponse.status).json({ error: metadata.error?.message || 'Arquivo não encontrado no Google Drive.' })
+
+      const nativeGoogleFile = metadata.mimeType?.startsWith('application/vnd.google-apps.')
+      const exportType = nativeGoogleFile ? 'application/pdf' : null
+      const endpoint = nativeGoogleFile
+        ? `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(req.params.id)}/export?mimeType=${encodeURIComponent(exportType)}`
+        : `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(req.params.id)}?alt=media&supportsAllDrives=true`
+
+      const download = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(120_000) })
+      if (!download.ok || !download.body) return res.status(502).json({ error: 'Falha ao baixar o arquivo para visualização.' })
+
+      let filename = metadata.name || 'documento'
+      if (nativeGoogleFile && !filename.toLowerCase().endsWith('.pdf')) {
+        filename += '.pdf'
+      }
+
+      const cacheDir = path.join(dataDir, 'preview-cache')
+      await mkdir(cacheDir, { recursive: true })
+      localPath = path.join(cacheDir, `${req.params.id}-${filename}`)
+
+      const arrayBuffer = await download.arrayBuffer()
+      await writeFile(localPath, Buffer.from(arrayBuffer))
+    }
+
+    const child = spawn('xdg-open', [localPath], {
+      detached: true,
+      stdio: 'ignore',
+      env: process.env,
+    })
+    child.unref()
+
+    res.json({
+      success: true,
+      path: localPath,
+      name: path.basename(localPath),
+      message: `Arquivo aberto no visualizador padrão do computador.`
+    })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.post('/api/open-local', async (req, res) => {
+  try {
+    const targetPath = String(req.body?.path || '').trim()
+    if (!targetPath || !existsSync(targetPath)) {
+      return res.status(404).json({ error: 'Arquivo ou pasta não encontrado no computador.' })
+    }
+    const child = spawn('xdg-open', [targetPath], {
+      detached: true,
+      stdio: 'ignore',
+      env: process.env,
+    })
+    child.unref()
+    res.json({ success: true, path: targetPath })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
 })
 
 async function listDriveChildrenWithRclone(remote, drivePath) {

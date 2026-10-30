@@ -7,6 +7,7 @@ import os
 import sys
 import json
 import time
+import shutil
 import urllib.request
 import subprocess
 import dbus
@@ -17,40 +18,81 @@ from gi.repository import GLib
 ICONS_DIR = os.path.expanduser("~/.local/share/nuvem-linux/icons")
 SYNC_FOLDERS_PATH = os.path.expanduser("~/.local/share/nuvem-linux/sync-folders.json")
 UPDATE_CACHE_PATH = os.path.expanduser("~/.local/share/nuvem-linux/update-check.json")
-API_BASE = "http://localhost:4173/api"
+APP_URL = "http://127.0.0.1:4173"
+API_BASE = f"{APP_URL}/api"
+APP_PROFILE_DIR = os.path.expanduser("~/.config/nuvem-linux/app-profile")
 
-def open_dashboard():
-    # 1. Tenta abrir via CLI do nuvem-linux (abre no modo aplicativo limpo)
-    for bin_path in ["/usr/bin/nuvem-linux", "/usr/local/bin/nuvem-linux"]:
+def open_app_window():
+    """Abre o painel em uma janela dedicada de aplicativo (modo app isolado, sem barras do navegador)."""
+    os.makedirs(APP_PROFILE_DIR, exist_ok=True)
+    
+    # 1. Tenta usar o comando oficial nuvem-linux window
+    for bin_path in ["/usr/bin/nuvem-linux", "/usr/local/bin/nuvem-linux", os.path.expanduser("~/nuvem-linux/packaging/bin/nuvem-linux")]:
         if os.path.exists(bin_path):
             try:
-                subprocess.Popen([bin_path, "open"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.Popen([bin_path, "window"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 return
             except Exception:
                 pass
 
-    # 2. Tenta abrir via XDG Desktop Portal (garante abertura no ambiente gráfico do usuário)
+    # 2. Executa diretamente o navegador em modo aplicativo com perfil independente
+    flags = [
+        f"--app={APP_URL}",
+        "--class=nuvem-linux",
+        "--name=nuvem-linux",
+        f"--user-data-dir={APP_PROFILE_DIR}",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--window-size=1120,760",
+    ]
+
+    default_browser = ""
+    try:
+        default_browser = subprocess.check_output(["xdg-settings", "get", "default-web-browser"], stderr=subprocess.DEVNULL).decode().strip()
+    except Exception:
+        pass
+
+    candidates = ["microsoft-edge", "google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "brave-browser"]
+    if "edge" in default_browser:
+        candidates.insert(0, "microsoft-edge")
+    elif "chrome" in default_browser:
+        candidates.insert(0, "google-chrome")
+
+    seen = set()
+    for browser in candidates:
+        if browser in seen:
+            continue
+        seen.add(browser)
+        if shutil.which(browser):
+            try:
+                subprocess.Popen([browser] + flags, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return
+            except Exception:
+                pass
+
+    # Fallback para navegador padrão caso nenhum Chromium esteja disponível
+    open_browser()
+
+def open_browser():
+    """Abre o painel no navegador web padrão do usuário."""
     try:
         bus = dbus.SessionBus()
         portal = bus.get_object("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop")
         open_uri = portal.get_dbus_method("OpenURI", "org.freedesktop.portal.OpenURI")
-        open_uri("", "http://localhost:4173", {})
+        open_uri("", APP_URL, {})
         return
     except Exception:
         pass
 
-    # 3. Fallbacks com navegadores instalados em modo app ou gio/xdg-open
-    for cmd in [
-        ["microsoft-edge", "--app=http://localhost:4173"],
-        ["google-chrome", "--app=http://localhost:4173"],
-        ["gio", "open", "http://localhost:4173"],
-        ["xdg-open", "http://localhost:4173"]
-    ]:
+    for cmd in [["gio", "open", APP_URL], ["xdg-open", APP_URL]]:
         try:
             subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return
         except Exception:
             pass
+
+def open_dashboard():
+    open_app_window()
 
 def open_folder(path):
     if not path or not os.path.exists(path):
@@ -192,8 +234,10 @@ class NuvemStatusNotifierItem(dbus.service.Object):
         if not action:
             return
         act_type = action.get("type")
-        if act_type == "open_dash":
-            open_dashboard()
+        if act_type in ("open_dash", "open_app_window"):
+            open_app_window()
+        elif act_type == "open_browser":
+            open_browser()
         elif act_type == "open_folder":
             open_folder(action.get("path"))
         elif act_type == "sync_all":
@@ -320,12 +364,16 @@ class NuvemStatusNotifierItem(dbus.service.Object):
             curr_id += 1
 
         # Actions
-        items.append({"id": curr_id, "label": "🔄 Sincronizar tudo agora", "enabled": not all_paused})
-        actions[curr_id] = {"type": "sync_all"}
+        items.append({"id": curr_id, "label": "🖥️ Abrir em janela de aplicativo", "enabled": True})
+        actions[curr_id] = {"type": "open_app_window"}
         curr_id += 1
 
-        items.append({"id": curr_id, "label": "🌐 Abrir painel web", "enabled": True})
-        actions[curr_id] = {"type": "open_dash"}
+        items.append({"id": curr_id, "label": "🌐 Abrir no navegador padrão", "enabled": True})
+        actions[curr_id] = {"type": "open_browser"}
+        curr_id += 1
+
+        items.append({"id": curr_id, "label": "🔄 Sincronizar tudo agora", "enabled": not all_paused})
+        actions[curr_id] = {"type": "sync_all"}
         curr_id += 1
 
         if folders:

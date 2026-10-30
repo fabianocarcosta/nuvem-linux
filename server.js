@@ -1222,6 +1222,49 @@ app.post('/api/open-local', async (req, res) => {
   }
 })
 
+app.post('/api/open-window', async (req, res) => {
+  try {
+    const profileDir = path.join(homedir(), '.config', 'nuvem-linux', 'app-profile')
+    await mkdir(profileDir, { recursive: true })
+    const appUrl = 'http://127.0.0.1:4173'
+    const flags = [
+      `--app=${appUrl}`,
+      '--class=nuvem-linux',
+      '--name=nuvem-linux',
+      `--user-data-dir=${profileDir}`,
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--window-size=1120,760',
+    ]
+
+    for (const binPath of ['/usr/bin/nuvem-linux', '/usr/local/bin/nuvem-linux']) {
+      if (existsSync(binPath)) {
+        const child = spawn(binPath, ['window'], { detached: true, stdio: 'ignore', env: process.env })
+        child.unref()
+        return res.json({ success: true, message: 'Janela do aplicativo aberta.' })
+      }
+    }
+
+    const candidates = ['microsoft-edge', 'google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'brave-browser']
+    let spawned = false
+    for (const bin of candidates) {
+      try {
+        const child = spawn(bin, flags, { detached: true, stdio: 'ignore', env: process.env })
+        child.unref()
+        spawned = true
+        break
+      } catch {}
+    }
+    if (!spawned) {
+      const child = spawn('xdg-open', [appUrl], { detached: true, stdio: 'ignore', env: process.env })
+      child.unref()
+    }
+    res.json({ success: true, message: 'Janela do aplicativo aberta.' })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 async function listDriveChildrenWithRclone(remote, drivePath) {
   const { stdout } = await runRclone(['lsjson', '--hash', `${remote}:${drivePath}`], { timeoutMs: 90_000 })
   return JSON.parse(stdout || '[]').map(entry => ({

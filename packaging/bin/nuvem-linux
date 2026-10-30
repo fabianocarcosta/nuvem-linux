@@ -51,20 +51,48 @@ start_service_or_background() {
 }
 
 open_window() {
+  PROFILE_DIR="$HOME/.config/nuvem-linux/app-profile"
+  mkdir -p "$PROFILE_DIR"
+
+  APP_FLAGS=(
+    "--app=$APP_URL"
+    "--class=nuvem-linux"
+    "--name=nuvem-linux"
+    "--user-data-dir=$PROFILE_DIR"
+    "--no-first-run"
+    "--no-default-browser-check"
+    "--window-size=1120,760"
+  )
+
+  DEFAULT_BROWSER="$(xdg-settings get default-web-browser 2>/dev/null || true)"
+
+  # Se o navegador padrão for Edge, prioriza Edge
+  if [[ "$DEFAULT_BROWSER" == *"edge"* ]] && command -v microsoft-edge >/dev/null 2>&1; then
+    microsoft-edge "${APP_FLAGS[@]}" >/dev/null 2>&1 &
+    return 0
+  fi
+
+  # Se o navegador padrão for Chrome, prioriza Chrome
+  if [[ "$DEFAULT_BROWSER" == *"chrome"* ]] && command -v google-chrome >/dev/null 2>&1; then
+    google-chrome "${APP_FLAGS[@]}" >/dev/null 2>&1 &
+    return 0
+  fi
+
+  # Ordem padrão de navegadores com suporte a modo aplicativo
   if command -v microsoft-edge >/dev/null 2>&1; then
-    microsoft-edge --app="$APP_URL" --class="nuvem-linux" >/dev/null 2>&1 &
+    microsoft-edge "${APP_FLAGS[@]}" >/dev/null 2>&1 &
   elif command -v msedge >/dev/null 2>&1; then
-    msedge --app="$APP_URL" --class="nuvem-linux" >/dev/null 2>&1 &
+    msedge "${APP_FLAGS[@]}" >/dev/null 2>&1 &
   elif command -v google-chrome >/dev/null 2>&1; then
-    google-chrome --app="$APP_URL" --class="nuvem-linux" >/dev/null 2>&1 &
+    google-chrome "${APP_FLAGS[@]}" >/dev/null 2>&1 &
   elif command -v google-chrome-stable >/dev/null 2>&1; then
-    google-chrome-stable --app="$APP_URL" --class="nuvem-linux" >/dev/null 2>&1 &
+    google-chrome-stable "${APP_FLAGS[@]}" >/dev/null 2>&1 &
   elif command -v chromium >/dev/null 2>&1; then
-    chromium --app="$APP_URL" --class="nuvem-linux" >/dev/null 2>&1 &
+    chromium "${APP_FLAGS[@]}" >/dev/null 2>&1 &
   elif command -v chromium-browser >/dev/null 2>&1; then
-    chromium-browser --app="$APP_URL" --class="nuvem-linux" >/dev/null 2>&1 &
+    chromium-browser "${APP_FLAGS[@]}" >/dev/null 2>&1 &
   elif command -v brave-browser >/dev/null 2>&1; then
-    brave-browser --app="$APP_URL" --class="nuvem-linux" >/dev/null 2>&1 &
+    brave-browser "${APP_FLAGS[@]}" >/dev/null 2>&1 &
   elif command -v gio >/dev/null 2>&1; then
     gio open "$APP_URL" >/dev/null 2>&1 &
   elif command -v xdg-open >/dev/null 2>&1; then
@@ -74,10 +102,26 @@ open_window() {
   fi
 }
 
-case "${1:-open}" in
-  open|"")
+open_browser() {
+  if command -v gio >/dev/null 2>&1; then
+    gio open "$APP_URL" >/dev/null 2>&1 &
+  elif command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$APP_URL" >/dev/null 2>&1 &
+  elif command -v microsoft-edge >/dev/null 2>&1; then
+    microsoft-edge "$APP_URL" >/dev/null 2>&1 &
+  elif command -v google-chrome >/dev/null 2>&1; then
+    google-chrome "$APP_URL" >/dev/null 2>&1 &
+  fi
+}
+
+case "${1:-window}" in
+  open|window|"")
     start_service_or_background
     open_window
+    ;;
+  browser)
+    start_service_or_background
+    open_browser
     ;;
   start)
     if is_running; then
@@ -114,14 +158,15 @@ case "${1:-open}" in
     fi
     ;;
   --help|-h|help)
-    echo "Uso: nuvem-linux [open|start|stop|status|logs]"
+    echo "Uso: nuvem-linux [window|browser|start|stop|status|logs]"
     echo ""
     echo "Comandos:"
-    echo "  open    Inicia o serviço se necessário e abre a interface (padrão)"
-    echo "  start   Inicia o serviço em segundo plano"
-    echo "  stop    Interrompe o serviço"
-    echo "  status  Verifica se o serviço está em execução"
-    echo "  logs    Acompanha os registros em tempo real via journalctl"
+    echo "  window   Abre em janela de aplicativo dedicada (padrão)"
+    echo "  browser  Abre no navegador web padrão"
+    echo "  start    Inicia o serviço em segundo plano"
+    echo "  stop     Interrompe o serviço"
+    echo "  status   Verifica se o serviço está em execução"
+    echo "  logs     Acompanha os registros em tempo real via journalctl"
     ;;
   *)
     echo "Comando desconhecido: $1. Use 'nuvem-linux help' para opções."

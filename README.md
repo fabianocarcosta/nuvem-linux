@@ -245,7 +245,7 @@ journalctl --user -u nuvem-linux.service -f
 Se você fizer modificações no código e quiser gerar novas versões para distribuir aos parceiros:
 
 ```bash
-cd /home/fabiano/REA
+cd /home/fabiano/nuvem-linux
 
 # Gera o pacote .deb e o AppImage:
 npm run package
@@ -269,7 +269,7 @@ O **Nuvem Linux** é um produto desenvolvido e mantido por:
 
 ## ⚖️ Licença e Avisos Legais
 
-Este projeto está licenciado sob os termos da **GNU General Public License v3.0 (GPLv3)** — consulte o arquivo [LICENSE](file:///home/fabiano/REA/LICENSE) para o texto legal completo.
+Este projeto está licenciado sob os termos da **GNU General Public License v3.0 (GPLv3)** — consulte o arquivo [LICENSE](file:///home/fabiano/nuvem-linux/LICENSE) para o texto legal completo.
 
 ### Agradecimentos e Créditos a Terceiros
 O Nuvem Linux faz uso respeitoso de grandes projetos de software livre:
@@ -280,4 +280,4 @@ O Nuvem Linux faz uso respeitoso de grandes projetos de software livre:
 - **Nautilus Python** (GPLv2+ - GNOME Foundation)
 - **AppImageKit** (MIT License - probonopd)
 
-Para detalhes completos de direitos autorais de terceiros, consulte o documento [NOTICE.md](file:///home/fabiano/REA/NOTICE.md).
+Para detalhes completos de direitos autorais de terceiros, consulte o documento [NOTICE.md](file:///home/fabiano/nuvem-linux/NOTICE.md).

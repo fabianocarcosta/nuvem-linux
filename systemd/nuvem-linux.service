@@ -5,10 +5,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/REA
+WorkingDirectory=%h/nuvem-linux
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=RCLONE_DRIVE_USE_TRASH=true
-ExecStart=/usr/bin/node %h/REA/server.js
+ExecStart=/usr/bin/node %h/nuvem-linux/server.js
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
